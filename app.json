@@ -2,14 +2,15 @@
   "expo": {
     "name": "consultorio-app",
     "slug": "consultorio-app",
-    "version": "1.0.0",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "consultorioapp",
+    "scheme": "consultorio-app",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "buildNumber": "4"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +20,16 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.camiloidk.consultorioapp",
+      "versionCode": 4,
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "POST_NOTIFICATIONS",
+        "SCHEDULE_EXACT_ALARM",
+        "USE_EXACT_ALARM"
+      ]
     },
     "web": {
       "output": "static",
@@ -43,6 +53,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "93e411a7-8a60-4628-8dac-a462a1579978"
+      }
     }
   }
 }

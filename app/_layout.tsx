@@ -1,24 +1,105 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
+import { Stack } from "expo-router";
+import { useEffect } from "react";
+import { AppProvider, useApp } from "../context/AppContext";
+import { NotificationService } from "../services/NotificationService";
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
+function RootLayoutNav() {
+  const { patients } = useApp();
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+  useEffect(() => {
+    // Initialize notifications when app starts
+    const initNotifications = async () => {
+      try {
+        // Request permissions
+        const hasPermission = await NotificationService.requestPermissions();
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+        if (hasPermission) {
+          console.log('🔔 Initializing notification system...');
+
+          // Reschedule all notifications in case app was reinstalled
+          await NotificationService.rescheduleAllNotifications(patients);
+
+          console.log('✅ Notification system initialized');
+        } else {
+          console.log('⚠️ Notification permissions not granted');
+        }
+      } catch (error) {
+        console.error('❌ Error initializing notifications:', error);
+      }
+    };
+
+    initNotifications();
+  }, []); // Run once on mount
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="registrar-paciente"
+        options={{
+          presentation: 'modal',
+          title: 'Nuevo Paciente',
+          headerShown: true,
+          headerBackTitle: 'Cancelar'
+        }}
+      />
+      <Stack.Screen
+        name="registrar-transaccion"
+        options={{
+          presentation: 'modal',
+          title: 'Nueva Transacción',
+          headerShown: true
+        }}
+      />
+      <Stack.Screen
+        name="registrar-pago"
+        options={{
+          presentation: 'modal',
+          title: 'Registrar Pago',
+          headerShown: true
+        }}
+      />
+      <Stack.Screen
+        name="modificar-control"
+        options={{
+          presentation: 'modal',
+          title: 'Editar Control',
+          headerShown: true
+        }}
+      />
+      <Stack.Screen
+        name="editar-paciente"
+        options={{
+          presentation: 'modal',
+          title: 'Editar Paciente',
+          headerShown: true
+        }}
+      />
+      <Stack.Screen
+        name="editar-transaccion"
+        options={{
+          presentation: 'modal',
+          title: 'Editar Transacción',
+          headerShown: true
+        }}
+      />
+      <Stack.Screen
+        name="configuracion"
+        options={{
+          presentation: 'modal',
+          title: 'Configuración',
+          headerShown: true
+        }}
+      />
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AppProvider>
+      <RootLayoutNav />
+    </AppProvider>
   );
 }

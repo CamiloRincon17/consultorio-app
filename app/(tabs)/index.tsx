@@ -1,98 +1,213 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useMemo } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Colors } from '../../constants/Colors';
+import { useApp } from '../../context/AppContext';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function Dashboard() {
+    const router = useRouter();
+    const { patients, getFinancialSummary } = useApp();
+    const summary = useMemo(() => getFinancialSummary(), [getFinancialSummary]);
 
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    const activePatients = patients.length;
+    // Mock data for appointments
+    const pendingAppointments = patients.length;
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
+    const Card = ({ title, value, icon, color, onPress }: any) => (
+        <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
+            <View style={[styles.iconContainer, { backgroundColor: color }]}>
+                <Ionicons name={icon} size={24} color="white" />
+            </View>
+            <View>
+                <Text style={styles.cardTitle}>{title}</Text>
+                <Text style={styles.cardValue}>{value}</Text>
+            </View>
+            <View style={styles.chevron}>
+                <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+            </View>
+        </TouchableOpacity>
+    );
+
+    return (
+        <SafeAreaView style={styles.container}>
+            <View style={styles.header}>
+                <View>
+                    <Text style={styles.headerTitle}>Resumen</Text>
+                    <Text style={styles.headerSubtitle}>Bienvenido, Doctor</Text>
+                </View>
+                <TouchableOpacity onPress={() => router.push('/configuracion')}>
+                    <Ionicons name="settings-outline" size={24} color={Colors.text} />
+                </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.content}>
+                <View style={styles.statsContainer}>
+                    <Card
+                        title="Pacientes"
+                        value={activePatients}
+                        icon="people"
+                        color={Colors.primary}
+                        onPress={() => router.push('/(tabs)/pacientes')}
+                    />
+                    <Card
+                        title="Ingresos Mes"
+                        value={`$${summary.income}`}
+                        icon="cash"
+                        color={Colors.success}
+                        onPress={() => router.push('/(tabs)/finanzas')}
+                    />
+                    <Card
+                        title="Próx. Controles"
+                        value={pendingAppointments}
+                        icon="calendar"
+                        color={Colors.warning}
+                        onPress={() => router.push('/(tabs)/pacientes')}
+                    />
+                </View>
+
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
+
+                    <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={() => router.push('/registrar-pago')}
+                    >
+                        <View style={[styles.actionIcon, { backgroundColor: Colors.success }]}>
+                            <Ionicons name="card-outline" size={24} color="white" />
+                        </View>
+                        <View style={styles.actionContent}>
+                            <Text style={styles.actionTitle}>Registrar Pago</Text>
+                            <Text style={styles.actionSubtitle}>Cobrar mensualidad a paciente</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={styles.actionButton}
+                        onPress={() => router.push('/registrar-paciente')}
+                    >
+                        <View style={[styles.actionIcon, { backgroundColor: Colors.primary }]}>
+                            <Ionicons name="person-add-outline" size={24} color="white" />
+                        </View>
+                        <View style={styles.actionContent}>
+                            <Text style={styles.actionTitle}>Nuevo Paciente</Text>
+                            <Text style={styles.actionSubtitle}>Registrar historial y cuota</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+            </ScrollView>
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
+    container: {
+        flex: 1,
+        backgroundColor: Colors.background,
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 24,
+        backgroundColor: 'white',
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+    },
+    headerTitle: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        color: Colors.text,
+    },
+    headerSubtitle: {
+        fontSize: 16,
+        color: Colors.textSecondary,
+        marginTop: 4,
+    },
+    content: {
+        padding: 16,
+    },
+    statsContainer: {
+        gap: 16,
+    },
+    card: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        padding: 16,
+        borderRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+    },
+    iconContainer: {
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 16,
+    },
+    cardTitle: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginBottom: 4,
+    },
+    cardValue: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: Colors.text,
+    },
+    chevron: {
+        marginLeft: 'auto',
+    },
+    section: {
+        marginTop: 24,
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: Colors.text,
+        marginBottom: 16,
+    },
+    // Action Button Styles
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        padding: 16,
+        borderRadius: 16,
+        marginBottom: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    actionIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 16,
+    },
+    actionContent: {
+        flex: 1,
+    },
+    actionTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Colors.text,
+    },
+    actionSubtitle: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    }
 });
