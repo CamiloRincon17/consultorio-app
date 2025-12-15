@@ -1,6 +1,6 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { useApp } from '../context/AppContext';
 
@@ -9,12 +9,36 @@ export default function EditPatient() {
     const { id } = useLocalSearchParams();
     const { patients, updatePatient, deletePatient } = useApp();
 
-    const patient = patients.find(p => p.id === id);
+    // Convertir id a string si es un array (expo-router a veces hace esto)
+    const patientId = Array.isArray(id) ? id[0] : id;
+    const patient = patientId ? patients.find(p => p.id === patientId) : undefined;
 
-    const [name, setName] = useState(patient?.name || '');
-    const [phone, setPhone] = useState(patient?.phone || '');
-    const [monthlyFee, setMonthlyFee] = useState(patient?.monthlyFee.toString() || '');
-    const [notes, setNotes] = useState(patient?.notes || '');
+    const [name, setName] = useState('');
+    const [phone, setPhone] = useState('');
+    const [monthlyFee, setMonthlyFee] = useState('');
+    const [notes, setNotes] = useState('');
+
+    // Actualizar el estado cuando cambia el paciente
+    useEffect(() => {
+        if (patient) {
+            setName(patient.name);
+            setPhone(patient.phone);
+            setMonthlyFee(patient.monthlyFee.toString());
+            setNotes(patient.notes || '');
+        }
+    }, [patient]);
+
+    // También actualizar cuando la pantalla obtiene el foco
+    useFocusEffect(
+        useCallback(() => {
+            if (patient) {
+                setName(patient.name);
+                setPhone(patient.phone);
+                setMonthlyFee(patient.monthlyFee.toString());
+                setNotes(patient.notes || '');
+            }
+        }, [patient])
+    );
 
     const handleSave = () => {
         if (!name.trim() || !monthlyFee.trim()) {
@@ -51,7 +75,14 @@ export default function EditPatient() {
         );
     };
 
-    if (!patient) return <View><Text>Paciente no encontrado</Text></View>;
+    if (!patient) return (
+        <View style={styles.container}>
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.loadingText}>Cargando paciente...</Text>
+            </View>
+        </View>
+    );
 
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
@@ -116,6 +147,16 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: Colors.background,
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 16,
+    },
+    loadingText: {
+        fontSize: 16,
+        color: Colors.textSecondary,
     },
     form: {
         padding: 24,

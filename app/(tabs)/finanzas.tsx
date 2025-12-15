@@ -5,6 +5,7 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { Transaction, useApp } from '../../context/AppContext';
+import { formatCOPShort } from '../../utils/formatCOP';
 
 export default function FinanceScreen() {
     const router = useRouter();
@@ -54,7 +55,7 @@ export default function FinanceScreen() {
                     styles.amount,
                     { color: item.type === 'INCOME' ? Colors.success : Colors.danger }
                 ]}>
-                    {item.type === 'INCOME' ? '+' : '-'}${item.amount}
+                    {item.type === 'INCOME' ? '+' : '-'}{formatCOPShort(item.amount)}
                 </Text>
             </TouchableOpacity>
         );
@@ -76,12 +77,12 @@ export default function FinanceScreen() {
             <View style={styles.balanceContainer}>
                 <View style={styles.balanceItem}>
                     <Text style={styles.balanceLabel}>Ingresos</Text>
-                    <Text style={[styles.balanceValue, { color: Colors.success }]}>${summary.income}</Text>
+                    <Text style={[styles.balanceValue, { color: Colors.success }]}>{formatCOPShort(summary.income)}</Text>
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.balanceItem}>
                     <Text style={styles.balanceLabel}>Gastos</Text>
-                    <Text style={[styles.balanceValue, { color: Colors.danger }]}>${summary.expenses}</Text>
+                    <Text style={[styles.balanceValue, { color: Colors.danger }]}>{formatCOPShort(summary.expenses)}</Text>
                 </View>
             </View>
 

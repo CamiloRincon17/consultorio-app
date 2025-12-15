@@ -1,21 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { FlatList, LayoutAnimation, Platform, StyleSheet, Text, TouchableOpacity, UIManager, View } from 'react-native';
+import React, { useState } from 'react';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/Colors';
 import { Patient, useApp } from '../../context/AppContext';
-
-// Enable LayoutAnimation on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+import { formatCOPShort } from '../../utils/formatCOP';
 
 function getNextControlDate(patient: Patient): Date {
     if (patient.nextControlDate) {
-        return new Date(patient.nextControlDate);
+        const date = new Date(patient.nextControlDate);
+        // Validate the date is valid
+        if (isNaN(date.getTime())) {
+            return new Date(); // Return current date as fallback
+        }
+        return date;
     }
+
     const start = new Date(patient.startDate);
+    // Validate start date is valid
+    if (isNaN(start.getTime())) {
+        return new Date(); // Return current date as fallback
+    }
+
     const today = new Date();
     const currentYear = today.getFullYear();
     const currentMonth = today.getMonth();
@@ -28,44 +35,51 @@ function getNextControlDate(patient: Patient): Date {
     return nextControl;
 }
 
-const PatientCard = React.memo(({ item, isExpanded, onToggle, stats }: { item: Patient, isExpanded: boolean, onToggle: (id: string) => void, stats: { totalPaid: number, visitCount: number } }) => {
+const PatientCard = ({ item, isExpanded, onToggle, stats }: { item: Patient, isExpanded: boolean, onToggle: (id: string) => void, stats: { totalPaid: number, visitCount: number } }) => {
     const router = useRouter();
+
+    // Defensive checks to prevent crashes
+    if (!item || !item.id || !item.name) {
+        return null; // Don't render if data is invalid
+    }
+
     const nextControl = getNextControlDate(item);
-    // Format: "14 de diciembre"
     const formattedDate = nextControl.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
 
     return (
-        <TouchableOpacity
-            style={[styles.card, isExpanded && styles.cardExpanded]}
-            onPress={() => onToggle(item.id)}
-            activeOpacity={0.9}
-        >
-            <View style={styles.cardHeader}>
-                <View style={styles.cardAvatar}>
-                    <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
-                </View>
-                <View style={styles.cardContent}>
-                    <Text style={styles.patientName}>{item.name}</Text>
-                    <View style={styles.detailRow}>
-                        <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
-                        <Text style={styles.controlDate}> Próximo: {formattedDate}</Text>
+        <View style={styles.card}>
+            <TouchableOpacity
+                onPress={() => onToggle(item.id)}
+                activeOpacity={0.7}
+                style={styles.cardTouchable}
+            >
+                <View style={styles.cardHeader}>
+                    <View style={styles.cardAvatar}>
+                        <Text style={styles.avatarText}>{item.name.charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={styles.cardContent}>
+                        <Text style={styles.patientName}>{item.name}</Text>
+                        <View style={styles.detailRow}>
+                            <Ionicons name="calendar-outline" size={14} color={Colors.primary} />
+                            <Text style={styles.controlDate}> Próximo: {formattedDate}</Text>
+                        </View>
+                    </View>
+                    <View style={styles.cardRight}>
+                        <Text style={styles.monthlyFee}>{formatCOPShort(item.monthlyFee || 0)}</Text>
                     </View>
                 </View>
-                <View style={styles.cardRight}>
-                    <Text style={styles.monthlyFee}>${item.monthlyFee}</Text>
-                </View>
-            </View>
+            </TouchableOpacity>
 
-            {isExpanded && (
+            {isExpanded ? (
                 <View style={styles.expandedContent}>
                     <View style={styles.statsRow}>
                         <View style={styles.statItem}>
                             <Text style={styles.statLabel}>Total Pagado</Text>
-                            <Text style={styles.statValue}>${stats.totalPaid}</Text>
+                            <Text style={styles.statValue}>{formatCOPShort(stats?.totalPaid || 0)}</Text>
                         </View>
                         <View style={styles.statItem}>
                             <Text style={styles.statLabel}>Visitas</Text>
-                            <Text style={styles.statValue}>{stats.visitCount}</Text>
+                            <Text style={styles.statValue}>{stats?.visitCount || 0}</Text>
                         </View>
                     </View>
 
@@ -87,29 +101,22 @@ const PatientCard = React.memo(({ item, isExpanded, onToggle, stats }: { item: P
                         </TouchableOpacity>
                     </View>
                 </View>
-            )}
-        </TouchableOpacity>
+            ) : null}
+        </View>
     );
-});
+};
 
 export default function PatientsScreen() {
     const router = useRouter();
     const { patients, getPatientStats } = useApp();
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
-    const toggleExpand = useCallback((id: string) => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setExpandedId(prev => prev === id ? null : id);
-    }, []);
+    // Filter out invalid patients to prevent blank cards
+    const validPatients = patients.filter(p => p && p.id && p.name);
 
-    const renderItem = useCallback(({ item }: { item: Patient }) => (
-        <PatientCard
-            item={item}
-            isExpanded={expandedId === item.id}
-            onToggle={toggleExpand}
-            stats={getPatientStats(item.id)}
-        />
-    ), [expandedId, getPatientStats, toggleExpand]);
+    const toggleExpand = (id: string) => {
+        setExpandedId(prev => prev === id ? null : id);
+    };
 
     return (
         <SafeAreaView style={styles.container}>
@@ -125,10 +132,21 @@ export default function PatientsScreen() {
             </View>
 
             <FlatList
-                data={patients}
+                data={validPatients}
                 keyExtractor={item => item.id}
-                renderItem={renderItem}
+                renderItem={({ item }) => {
+                    const stats = getPatientStats(item.id);
+                    return (
+                        <PatientCard
+                            item={item}
+                            isExpanded={expandedId === item.id}
+                            onToggle={toggleExpand}
+                            stats={stats}
+                        />
+                    );
+                }}
                 contentContainerStyle={styles.list}
+                extraData={expandedId}
             />
         </SafeAreaView>
     );
@@ -179,6 +197,9 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 2,
         overflow: 'hidden',
+    },
+    cardTouchable: {
+        width: '100%',
     },
     cardExpanded: {
         borderWidth: 1,

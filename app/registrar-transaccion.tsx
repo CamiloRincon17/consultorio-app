@@ -54,10 +54,10 @@ export default function AddTransaction() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Monto ($)</Text>
+                    <Text style={styles.label}>Monto (COP)</Text>
                     <TextInput
                         style={[styles.input, styles.amountInput, { color: type === 'INCOME' ? Colors.success : Colors.danger }]}
-                        placeholder="0.00"
+                        placeholder="0"
                         keyboardType="numeric"
                         value={amount}
                         onChangeText={setAmount}

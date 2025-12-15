@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { Patient, useApp } from '../context/AppContext';
+import { formatCOPShort } from '../utils/formatCOP';
 
 export default function RegisterPayment() {
     const router = useRouter();
@@ -112,10 +113,10 @@ export default function RegisterPayment() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Monto a Cobrar ($)</Text>
+                    <Text style={styles.label}>Monto a Cobrar (COP)</Text>
                     <TextInput
                         style={[styles.input, styles.amountInput]}
-                        placeholder="0.00"
+                        placeholder="0"
                         keyboardType="numeric"
                         value={amount}
                         onChangeText={setAmount}
@@ -158,7 +159,7 @@ export default function RegisterPayment() {
                                     onPress={() => handleSelectPatient(patient)}
                                 >
                                     <Text style={styles.patientItemName}>{patient.name}</Text>
-                                    <Text style={styles.patientItemDetail}>Cuota: ${patient.monthlyFee}</Text>
+                                    <Text style={styles.patientItemDetail}>Cuota: {formatCOPShort(patient.monthlyFee)}</Text>
                                 </TouchableOpacity>
                             ))}
                             {patients.length === 0 && (

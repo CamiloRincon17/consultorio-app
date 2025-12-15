@@ -1,5 +1,5 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Colors } from '../constants/Colors';
 import { useApp } from '../context/AppContext';
@@ -9,11 +9,33 @@ export default function EditTransaction() {
     const { id } = useLocalSearchParams();
     const { transactions, updateTransaction, deleteTransaction } = useApp();
 
-    const transaction = transactions.find(t => t.id === id);
+    // Convertir id a string si es un array (expo-router a veces hace esto)
+    const transactionId = Array.isArray(id) ? id[0] : id;
+    const transaction = transactionId ? transactions.find(t => t.id === transactionId) : undefined;
 
-    const [amount, setAmount] = useState(transaction?.amount.toString() || '');
-    const [description, setDescription] = useState(transaction?.description || '');
-    const [procedure, setProcedure] = useState(transaction?.procedure || '');
+    const [amount, setAmount] = useState('');
+    const [description, setDescription] = useState('');
+    const [procedure, setProcedure] = useState('');
+
+    // Actualizar el estado cuando cambia la transacción
+    useEffect(() => {
+        if (transaction) {
+            setAmount(transaction.amount.toString());
+            setDescription(transaction.description);
+            setProcedure(transaction.procedure || '');
+        }
+    }, [transaction]);
+
+    // También actualizar cuando la pantalla obtiene el foco
+    useFocusEffect(
+        useCallback(() => {
+            if (transaction) {
+                setAmount(transaction.amount.toString());
+                setDescription(transaction.description);
+                setProcedure(transaction.procedure || '');
+            }
+        }, [transaction])
+    );
 
     const handleSave = () => {
         if (!amount.trim()) {
@@ -49,7 +71,14 @@ export default function EditTransaction() {
         );
     };
 
-    if (!transaction) return <View><Text>Transacción no encontrada</Text></View>;
+    if (!transaction) return (
+        <View style={styles.container}>
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.loadingText}>Cargando transacción...</Text>
+            </View>
+        </View>
+    );
 
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
@@ -64,12 +93,12 @@ export default function EditTransaction() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Monto ($)</Text>
+                    <Text style={styles.label}>Monto (COP)</Text>
                     <TextInput
                         style={[styles.input, styles.amountInput]}
                         value={amount}
                         onChangeText={setAmount}
-                        placeholder="0.00"
+                        placeholder="0"
                         keyboardType="numeric"
                     />
                 </View>
@@ -112,6 +141,16 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: Colors.background,
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 16,
+    },
+    loadingText: {
+        fontSize: 16,
+        color: Colors.textSecondary,
     },
     form: {
         padding: 24,
