@@ -14,17 +14,17 @@ function RootLayoutNav() {
         const hasPermission = await NotificationService.requestPermissions();
 
         if (hasPermission) {
-          console.log('🔔 Initializing notification system...');
+          console.log("🔔 Initializing notification system...");
 
           // Reschedule all notifications in case app was reinstalled
           await NotificationService.rescheduleAllNotifications(patients);
 
-          console.log('✅ Notification system initialized');
+          console.log("✅ Notification system initialized");
         } else {
-          console.log('⚠️ Notification permissions not granted');
+          console.log("⚠️ Notification permissions not granted");
         }
       } catch (error) {
-        console.error('❌ Error initializing notifications:', error);
+        console.error("❌ Error initializing notifications:", error);
       }
     };
 
@@ -38,58 +38,74 @@ function RootLayoutNav() {
       <Stack.Screen
         name="registrar-paciente"
         options={{
-          presentation: 'modal',
-          title: 'Nuevo Paciente',
+          presentation: "modal",
+          title: "Nuevo Paciente",
           headerShown: true,
-          headerBackTitle: 'Cancelar'
+          headerBackTitle: "Cancelar",
         }}
       />
       <Stack.Screen
         name="registrar-transaccion"
         options={{
-          presentation: 'modal',
-          title: 'Nueva Transacción',
-          headerShown: true
+          presentation: "modal",
+          title: "Nueva Transacción",
+          headerShown: true,
         }}
       />
       <Stack.Screen
         name="registrar-pago"
         options={{
-          presentation: 'modal',
-          title: 'Registrar Pago',
-          headerShown: true
+          presentation: "modal",
+          title: "Registrar Pago",
+          headerShown: true,
         }}
       />
       <Stack.Screen
         name="modificar-control"
         options={{
-          presentation: 'modal',
-          title: 'Editar Control',
-          headerShown: true
+          presentation: "modal",
+          title: "Editar Control",
+          headerShown: true,
         }}
       />
       <Stack.Screen
         name="editar-paciente"
         options={{
-          presentation: 'modal',
-          title: 'Editar Paciente',
-          headerShown: true
+          presentation: "modal",
+          title: "Editar Paciente",
+          headerShown: true,
         }}
       />
       <Stack.Screen
         name="editar-transaccion"
         options={{
-          presentation: 'modal',
-          title: 'Editar Transacción',
-          headerShown: true
+          presentation: "modal",
+          title: "Editar Transacción",
+          headerShown: true,
         }}
       />
       <Stack.Screen
         name="configuracion"
         options={{
-          presentation: 'modal',
-          title: 'Configuración',
-          headerShown: true
+          presentation: "modal",
+          title: "Configuración",
+          headerShown: true,
+        }}
+      />
+      <Stack.Screen
+        name="reporte-semanal"
+        options={{
+          presentation: "modal",
+          title: "Reporte Semanal",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="reporte-mensual"
+        options={{
+          presentation: "modal",
+          title: "Reporte Mensual",
+          headerShown: false,
         }}
       />
     </Stack>
