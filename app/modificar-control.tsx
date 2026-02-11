@@ -3,13 +3,13 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  Alert,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { Colors } from "../constants/Colors";
 import { useApp } from "../context/AppContext";
@@ -31,6 +31,10 @@ export default function ModifyControl() {
     notificationHour: 9,
     notificationMinute: 0,
   });
+  const [treatmentType, setTreatmentType] = useState<"ortodoncia" | "general">(
+    "general",
+  );
+  const [appointmentFrequency, setAppointmentFrequency] = useState<string>("4");
 
   useEffect(() => {
     if (patient) {
@@ -42,6 +46,10 @@ export default function ModifyControl() {
         tomorrow.setDate(tomorrow.getDate() + 1);
         setSelectedDate(tomorrow);
       }
+
+      // Initialize treatment type and frequency
+      setTreatmentType(patient.treatmentType || "general");
+      setAppointmentFrequency(patient.appointmentFrequency?.toString() || "4");
 
       // Check if notification is already scheduled
       checkNotificationStatus();
@@ -102,8 +110,12 @@ export default function ModifyControl() {
       return;
     }
 
-    // Save to context
-    updatePatient(patient.id, { nextControlDate: selectedDate.toISOString() });
+    // Save to context with treatment info
+    updatePatient(patient.id, {
+      nextControlDate: selectedDate.toISOString(),
+      treatmentType,
+      appointmentFrequency: parseInt(appointmentFrequency, 10) || undefined,
+    });
 
     // Schedule notification
     const success = await NotificationService.scheduleAppointmentNotification(
@@ -274,6 +286,101 @@ export default function ModifyControl() {
           >
             <Text style={styles.doneButtonText}>Listo</Text>
           </TouchableOpacity>
+        )}
+      </View>
+
+      {/* Treatment Type & Frequency Card */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Tipo de Tratamiento</Text>
+
+        <View style={styles.treatmentTypeContainer}>
+          <TouchableOpacity
+            style={[
+              styles.treatmentTypeButton,
+              treatmentType === "general" && styles.treatmentTypeButtonActive,
+            ]}
+            onPress={() => setTreatmentType("general")}
+          >
+            <Ionicons
+              name="medkit-outline"
+              size={24}
+              color={
+                treatmentType === "general"
+                  ? Colors.primary
+                  : Colors.textSecondary
+              }
+            />
+            <Text
+              style={[
+                styles.treatmentTypeText,
+                treatmentType === "general" && styles.treatmentTypeTextActive,
+              ]}
+            >
+              General
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.treatmentTypeButton,
+              treatmentType === "ortodoncia" &&
+                styles.treatmentTypeButtonActive,
+            ]}
+            onPress={() => setTreatmentType("ortodoncia")}
+          >
+            <Ionicons
+              name="happy-outline"
+              size={24}
+              color={
+                treatmentType === "ortodoncia"
+                  ? Colors.primary
+                  : Colors.textSecondary
+              }
+            />
+            <Text
+              style={[
+                styles.treatmentTypeText,
+                treatmentType === "ortodoncia" &&
+                  styles.treatmentTypeTextActive,
+              ]}
+            >
+              Ortodoncia
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {treatmentType === "ortodoncia" && (
+          <View style={styles.frequencyContainer}>
+            <Text style={styles.frequencyLabel}>
+              Frecuencia de citas (semanas)
+            </Text>
+            <View style={styles.frequencyButtons}>
+              {["2", "3", "4", "6", "8"].map((weeks) => (
+                <TouchableOpacity
+                  key={weeks}
+                  style={[
+                    styles.frequencyButton,
+                    appointmentFrequency === weeks &&
+                      styles.frequencyButtonActive,
+                  ]}
+                  onPress={() => setAppointmentFrequency(weeks)}
+                >
+                  <Text
+                    style={[
+                      styles.frequencyButtonText,
+                      appointmentFrequency === weeks &&
+                        styles.frequencyButtonTextActive,
+                    ]}
+                  >
+                    {weeks}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.frequencyHint}>
+              Se usará para reasignación automática
+            </Text>
+          </View>
         )}
       </View>
 
@@ -549,5 +656,71 @@ const styles = StyleSheet.create({
     color: Colors.danger,
     fontSize: 16,
     fontWeight: "bold",
+  },
+  treatmentTypeContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  treatmentTypeButton: {
+    flex: 1,
+    flexDirection: "column",
+    alignItems: "center",
+    padding: 16,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    gap: 8,
+  },
+  treatmentTypeButtonActive: {
+    backgroundColor: Colors.primary + "10",
+    borderColor: Colors.primary,
+  },
+  treatmentTypeText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  treatmentTypeTextActive: {
+    color: Colors.primary,
+  },
+  frequencyContainer: {
+    marginTop: 16,
+    gap: 12,
+  },
+  frequencyLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.text,
+  },
+  frequencyButtons: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  frequencyButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  frequencyButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  frequencyButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  frequencyButtonTextActive: {
+    color: "white",
+  },
+  frequencyHint: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontStyle: "italic",
   },
 });

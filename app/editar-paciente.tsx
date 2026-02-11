@@ -46,6 +46,18 @@ export default function EditPatient() {
             return;
         }
 
+        // Check for duplicate names (excluding the current patient)
+        const duplicateName = patients.find(
+            (p) => p.id !== patient!.id && p.name.toLowerCase().trim() === name.toLowerCase().trim()
+        );
+        if (duplicateName) {
+            Alert.alert(
+                'Nombre Duplicado',
+                'Ya existe otro paciente con este nombre. Por favor, agrega algo único (ej. apellido completo, inicial, etc.)'
+            );
+            return;
+        }
+
         updatePatient(patient!.id, {
             name,
             phone,

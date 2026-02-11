@@ -1,0 +1,802 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useMemo, useState } from "react";
+import {
+    Alert,
+    FlatList,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Colors } from "../constants/Colors";
+import { useApp, Visit } from "../context/AppContext";
+import { formatCOPShort } from "../utils/formatCOP";
+
+interface VisitWithPatient extends Visit {
+    patientName?: string;
+    patientId?: string;
+}
+
+export default function HistorialVisitasScreen() {
+    const router = useRouter();
+    const { id } = useLocalSearchParams();
+    const patientId = Array.isArray(id) ? id[0] : id;
+    const isGlobal = !patientId;
+
+    const { patients, addVisit, updateVisit, deleteVisit, getPatientVisits } =
+        useApp();
+
+    const patient = patientId ? patients.find((p) => p.id === patientId) : null;
+
+    // Get visits: either for one patient or all of them
+    const visits: VisitWithPatient[] = useMemo(() => {
+        if (patientId) {
+            return getPatientVisits(patientId).map(v => ({ ...v, patientId, patientName: patient?.name }));
+        } else {
+            // Global view: flatten all visits
+            return patients.flatMap((p) =>
+                (p.visits || []).map((v) => ({
+                    ...v,
+                    patientName: p.name,
+                    patientId: p.id,
+                }))
+            ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+    }, [patients, patientId, patient, getPatientVisits]);
+
+    const [modalVisible, setModalVisible] = useState(false);
+    const [editingVisit, setEditingVisit] = useState<VisitWithPatient | null>(null);
+
+    // Form state
+    const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+    const [reason, setReason] = useState("");
+    const [treatment, setTreatment] = useState("");
+    const [notes, setNotes] = useState("");
+    const [cost, setCost] = useState("");
+    const [paid, setPaid] = useState(false);
+
+    // If looking for a specific patient and not found, show error
+    if (patientId && !patient) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={24} color={Colors.text} />
+                    </TouchableOpacity>
+                    <Text style={styles.title}>Error</Text>
+                </View>
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.errorText}>Paciente no encontrado</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    const resetForm = () => {
+        setDate(new Date().toISOString().split("T")[0]);
+        setReason("");
+        setTreatment("");
+        setNotes("");
+        setCost("");
+        setPaid(false);
+        setEditingVisit(null);
+    };
+
+    const openAddModal = () => {
+        if (isGlobal) {
+            Alert.alert("Selección requerida", "Para agregar una visita, por favor ve a la sección de Pacientes y selecciona uno.");
+            return;
+        }
+        resetForm();
+        setModalVisible(true);
+    };
+
+    const openEditModal = (visit: VisitWithPatient) => {
+        setEditingVisit(visit);
+        setDate(visit.date);
+        setReason(visit.reason || "");
+        setTreatment(visit.treatment || "");
+        setNotes(visit.notes || "");
+        setCost(visit.cost?.toString() || "");
+        setPaid(visit.paid || false);
+        setModalVisible(true);
+    };
+
+    const handleSave = () => {
+        if (!date) {
+            Alert.alert("Error", "La fecha es requerida");
+            return;
+        }
+
+        const visitData: Omit<Visit, "id"> = {
+            date,
+            reason: reason || undefined,
+            treatment: treatment || undefined,
+            notes: notes || undefined,
+            cost: cost ? parseFloat(cost) : undefined,
+            paid,
+        };
+
+        if (editingVisit) {
+            // Use the patientId from the visit itself (for global view editing) or the current patientId
+            const targetPatientId = editingVisit.patientId || patientId;
+            if (targetPatientId) {
+                updateVisit(targetPatientId, editingVisit.id, visitData);
+                Alert.alert("Éxito", "Visita actualizada correctamente");
+            }
+        } else if (patientId) {
+            addVisit(patientId, visitData);
+            Alert.alert("Éxito", "Visita agregada correctamente");
+        }
+
+        setModalVisible(false);
+        resetForm();
+    };
+
+    const handleDelete = (visit: VisitWithPatient) => {
+        const targetPatientId = visit.patientId || patientId;
+        if (!targetPatientId) return;
+
+        Alert.alert(
+            "Confirmar",
+            "¿Estás seguro de eliminar esta visita?",
+            [
+                { text: "Cancelar", style: "cancel" },
+                {
+                    text: "Eliminar",
+                    style: "destructive",
+                    onPress: () => {
+                        deleteVisit(targetPatientId, visit.id);
+                        Alert.alert("Éxito", "Visita eliminada");
+                    },
+                },
+            ],
+        );
+    };
+
+    const renderVisitCard = ({ item }: { item: VisitWithPatient }) => {
+        const visitDate = new Date(item.date);
+        const formattedDate = visitDate.toLocaleDateString("es-ES", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+        });
+
+        return (
+            <View style={styles.visitCard}>
+                {/* Patient Name Header if Global */}
+                {isGlobal && item.patientName && (
+                    <View style={styles.patientHeader}>
+                        <Ionicons name="person-circle-outline" size={20} color={Colors.primary} />
+                        <Text style={styles.patientNameText}>{item.patientName}</Text>
+                    </View>
+                )}
+
+                <View style={styles.visitHeader}>
+                    <View style={styles.dateContainer}>
+                        <Ionicons name="calendar" size={20} color={Colors.primary} />
+                        <Text style={styles.visitDate}>{formattedDate}</Text>
+                    </View>
+                    <View style={styles.visitActions}>
+                        <TouchableOpacity
+                            onPress={() => openEditModal(item)}
+                            style={styles.iconButton}
+                        >
+                            <Ionicons
+                                name="create-outline"
+                                size={22}
+                                color={Colors.primary}
+                            />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => handleDelete(item)}
+                            style={styles.iconButton}
+                        >
+                            <Ionicons name="trash-outline" size={22} color={Colors.danger} />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                {item.reason && (
+                    <View style={styles.visitDetail}>
+                        <Ionicons
+                            name="medical-outline"
+                            size={16}
+                            color={Colors.textSecondary}
+                        />
+                        <Text style={styles.detailText}>
+                            <Text style={styles.detailLabel}>Motivo: </Text>
+                            {item.reason}
+                        </Text>
+                    </View>
+                )}
+
+                {item.treatment && (
+                    <View style={styles.visitDetail}>
+                        <Ionicons
+                            name="fitness-outline"
+                            size={16}
+                            color={Colors.textSecondary}
+                        />
+                        <Text style={styles.detailText}>
+                            <Text style={styles.detailLabel}>Tratamiento: </Text>
+                            {item.treatment}
+                        </Text>
+                    </View>
+                )}
+
+                {item.notes && (
+                    <View style={styles.visitDetail}>
+                        <Ionicons
+                            name="document-text-outline"
+                            size={16}
+                            color={Colors.textSecondary}
+                        />
+                        <Text style={styles.detailText}>
+                            <Text style={styles.detailLabel}>Notas: </Text>
+                            {item.notes}
+                        </Text>
+                    </View>
+                )}
+
+                {item.cost !== undefined && (
+                    <View style={styles.costContainer}>
+                        <Text style={styles.costLabel}>Costo:</Text>
+                        <Text style={styles.costValue}>{formatCOPShort(item.cost)}</Text>
+                        {item.paid ? (
+                            <View style={styles.paidBadge}>
+                                <Ionicons name="checkmark-circle" size={16} color="white" />
+                                <Text style={styles.paidText}>Pagado</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.unpaidBadge}>
+                                <Ionicons
+                                    name="close-circle-outline"
+                                    size={16}
+                                    color={Colors.danger}
+                                />
+                                <Text style={styles.unpaidText}>Pendiente</Text>
+                            </View>
+                        )}
+                    </View>
+                )}
+            </View>
+        );
+    };
+
+    return (
+        <SafeAreaView style={styles.container}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity
+                    onPress={() => router.back()}
+                    style={styles.backButton}
+                >
+                    <Ionicons name="arrow-back" size={24} color={Colors.text} />
+                </TouchableOpacity>
+                <View style={styles.headerContent}>
+                    <Text style={styles.title}>
+                        {isGlobal ? "Historial Global" : "Historial de Visitas"}
+                    </Text>
+                    <Text style={styles.subtitle}>
+                        {isGlobal ? "Todas las visitas registradas" : patient?.name}
+                    </Text>
+                </View>
+            </View>
+
+            {/* Stats Summary */}
+            <View style={styles.statsContainer}>
+                <View style={styles.statBox}>
+                    <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
+                    <Text style={styles.statValue}>{visits.length}</Text>
+                    <Text style={styles.statLabel}>
+                        {visits.length === 1 ? "Visita" : "Visitas"}
+                    </Text>
+                </View>
+                <View style={styles.statBox}>
+                    <Ionicons name="cash-outline" size={24} color={Colors.success} />
+                    <Text style={styles.statValue}>
+                        {formatCOPShort(
+                            visits.reduce((sum, v) => sum + (v.cost || 0), 0),
+                        )}
+                    </Text>
+                    <Text style={styles.statLabel}>Total</Text>
+                </View>
+                <View style={styles.statBox}>
+                    <Ionicons
+                        name="checkmark-done-outline"
+                        size={24}
+                        color={Colors.success}
+                    />
+                    <Text style={styles.statValue}>
+                        {visits.filter((v) => v.paid).length}
+                    </Text>
+                    <Text style={styles.statLabel}>Pagadas</Text>
+                </View>
+            </View>
+
+            {/* Visits List */}
+            <FlatList
+                data={visits}
+                keyExtractor={(item) => item.id}
+                renderItem={renderVisitCard}
+                contentContainerStyle={styles.listContent}
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <Ionicons
+                            name="folder-open-outline"
+                            size={64}
+                            color={Colors.border}
+                        />
+                        <Text style={styles.emptyText}>No hay visitas registradas</Text>
+                        <Text style={styles.emptySubtext}>
+                            {isGlobal
+                                ? "Las visitas de los pacientes aparecerán aquí"
+                                : "Presiona el botón + para agregar una visita"}
+                        </Text>
+                    </View>
+                }
+            />
+
+            {/* Add Button - Only visible for specific patient */}
+            {!isGlobal && (
+                <TouchableOpacity style={styles.addButton} onPress={openAddModal}>
+                    <Ionicons name="add" size={28} color="white" />
+                </TouchableOpacity>
+            )}
+
+            {/* Modal para agregar/editar visita */}
+            <Modal
+                visible={modalVisible}
+                animationType="slide"
+                transparent={true}
+                onRequestClose={() => {
+                    setModalVisible(false);
+                    resetForm();
+                }}
+            >
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>
+                                {editingVisit ? "Editar Visita" : "Nueva Visita"}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setModalVisible(false);
+                                    resetForm();
+                                }}
+                            >
+                                <Ionicons name="close" size={28} color={Colors.text} />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView style={styles.modalBody}>
+                            {/* Fecha */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>
+                                    Fecha <Text style={styles.required}>*</Text>
+                                </Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={date}
+                                    onChangeText={setDate}
+                                    placeholder="YYYY-MM-DD"
+                                />
+                            </View>
+
+                            {/* Motivo */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Motivo de la Visita</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={reason}
+                                    onChangeText={setReason}
+                                    placeholder="Ej: Control mensual, Dolor, etc."
+                                />
+                            </View>
+
+                            {/* Tratamiento */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Tratamiento Realizado</Text>
+                                <TextInput
+                                    style={[styles.input, styles.textArea]}
+                                    value={treatment}
+                                    onChangeText={setTreatment}
+                                    placeholder="Describe el tratamiento"
+                                    multiline
+                                    numberOfLines={3}
+                                />
+                            </View>
+
+                            {/* Notas */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Notas Adicionales</Text>
+                                <TextInput
+                                    style={[styles.input, styles.textArea]}
+                                    value={notes}
+                                    onChangeText={setNotes}
+                                    placeholder="Observaciones, recomendaciones..."
+                                    multiline
+                                    numberOfLines={3}
+                                />
+                            </View>
+
+                            {/* Costo */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Costo ($)</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={cost}
+                                    onChangeText={setCost}
+                                    placeholder="0"
+                                    keyboardType="numeric"
+                                />
+                            </View>
+
+                            {/* Estado de Pago */}
+                            <View style={styles.inputGroup}>
+                                <Text style={styles.label}>Estado de Pago</Text>
+                                <TouchableOpacity
+                                    style={[
+                                        styles.toggleButton,
+                                        paid && styles.toggleButtonActive,
+                                    ]}
+                                    onPress={() => setPaid(!paid)}
+                                >
+                                    <Ionicons
+                                        name={paid ? "checkmark-circle" : "close-circle-outline"}
+                                        size={24}
+                                        color={paid ? "white" : Colors.textSecondary}
+                                    />
+                                    <Text
+                                        style={[
+                                            styles.toggleText,
+                                            paid && styles.toggleTextActive,
+                                        ]}
+                                    >
+                                        {paid ? "Pagado" : "Pendiente"}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </ScrollView>
+
+                        <View style={styles.modalFooter}>
+                            <TouchableOpacity
+                                style={[styles.button, styles.cancelButton]}
+                                onPress={() => {
+                                    setModalVisible(false);
+                                    resetForm();
+                                }}
+                            >
+                                <Text style={styles.cancelButtonText}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.button, styles.saveButton]}
+                                onPress={handleSave}
+                            >
+                                <Text style={styles.saveButtonText}>Guardar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        </SafeAreaView>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: Colors.background,
+    },
+    header: {
+        flexDirection: "row",
+        alignItems: "center",
+        padding: 16,
+        backgroundColor: "white",
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+    },
+    backButton: {
+        marginRight: 12,
+    },
+    headerContent: {
+        flex: 1,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: "bold",
+        color: Colors.text,
+    },
+    subtitle: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
+    statsContainer: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        padding: 16,
+        backgroundColor: "white",
+        marginTop: 8,
+    },
+    statBox: {
+        alignItems: "center",
+    },
+    statValue: {
+        fontSize: 20,
+        fontWeight: "bold",
+        color: Colors.text,
+        marginTop: 8,
+    },
+    statLabel: {
+        fontSize: 12,
+        color: Colors.textSecondary,
+        marginTop: 4,
+    },
+    listContent: {
+        padding: 16,
+        gap: 12,
+    },
+    visitCard: {
+        backgroundColor: "white",
+        borderRadius: 12,
+        padding: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    patientHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+        paddingBottom: 8,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border + '40',
+    },
+    patientNameText: {
+        fontSize: 14,
+        fontWeight: "bold",
+        color: Colors.primary,
+    },
+    visitHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 12,
+    },
+    dateContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+    },
+    visitDate: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: Colors.text,
+        textTransform: "capitalize",
+    },
+    visitActions: {
+        flexDirection: "row",
+        gap: 12,
+    },
+    iconButton: {
+        padding: 4,
+    },
+    visitDetail: {
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 8,
+        marginBottom: 8,
+    },
+    detailText: {
+        flex: 1,
+        fontSize: 14,
+        color: Colors.text,
+    },
+    detailLabel: {
+        fontWeight: "600",
+        color: Colors.textSecondary,
+    },
+    costContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginTop: 8,
+        paddingTop: 12,
+        borderTopWidth: 1,
+        borderTopColor: Colors.border,
+        gap: 8,
+    },
+    costLabel: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: Colors.textSecondary,
+    },
+    costValue: {
+        fontSize: 16,
+        fontWeight: "bold",
+        color: Colors.success,
+        flex: 1,
+    },
+    paidBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: Colors.success,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+    },
+    paidText: {
+        color: "white",
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    unpaidBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: Colors.background,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: Colors.danger,
+    },
+    unpaidText: {
+        color: Colors.danger,
+        fontSize: 12,
+        fontWeight: "600",
+    },
+    emptyContainer: {
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 60,
+    },
+    emptyText: {
+        fontSize: 18,
+        fontWeight: "600",
+        color: Colors.textSecondary,
+        marginTop: 16,
+    },
+    emptySubtext: {
+        fontSize: 14,
+        color: Colors.textSecondary,
+        marginTop: 8,
+        textAlign: "center",
+    },
+    addButton: {
+        position: "absolute",
+        bottom: 24,
+        right: 24,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: Colors.primary,
+        alignItems: "center",
+        justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 8,
+    },
+    errorText: {
+        fontSize: 16,
+        color: Colors.danger,
+        textAlign: "center",
+        marginTop: 32,
+    },
+    // Modal styles
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "flex-end",
+    },
+    modalContent: {
+        backgroundColor: "white",
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+        maxHeight: "90%",
+    },
+    modalHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        padding: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: "bold",
+        color: Colors.text,
+    },
+    modalBody: {
+        padding: 20,
+    },
+    inputGroup: {
+        marginBottom: 20,
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: Colors.text,
+        marginBottom: 8,
+    },
+    required: {
+        color: Colors.danger,
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderRadius: 8,
+        padding: 12,
+        fontSize: 16,
+        color: Colors.text,
+        backgroundColor: "white",
+    },
+    textArea: {
+        height: 80,
+        textAlignVertical: "top",
+    },
+    toggleButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        padding: 12,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        borderRadius: 8,
+        gap: 8,
+    },
+    toggleButtonActive: {
+        backgroundColor: Colors.success,
+        borderColor: Colors.success,
+    },
+    toggleText: {
+        fontSize: 16,
+        color: Colors.textSecondary,
+        fontWeight: "500",
+    },
+    toggleTextActive: {
+        color: "white",
+    },
+    modalFooter: {
+        flexDirection: "row",
+        padding: 20,
+        gap: 12,
+        borderTopWidth: 1,
+        borderTopColor: Colors.border,
+    },
+    button: {
+        flex: 1,
+        padding: 16,
+        borderRadius: 8,
+        alignItems: "center",
+    },
+    cancelButton: {
+        backgroundColor: Colors.background,
+    },
+    cancelButtonText: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: Colors.text,
+    },
+    saveButton: {
+        backgroundColor: Colors.primary,
+    },
+    saveButtonText: {
+        fontSize: 16,
+        fontWeight: "600",
+        color: "white",
+    },
+});

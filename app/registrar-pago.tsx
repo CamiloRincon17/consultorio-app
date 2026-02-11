@@ -8,7 +8,7 @@ import { formatCOPShort } from '../utils/formatCOP';
 
 export default function RegisterPayment() {
     const router = useRouter();
-    const { patients, addTransaction } = useApp();
+    const { patients, addTransaction, addVisit } = useApp();
 
     const [isRegistered, setIsRegistered] = useState(true);
     const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
@@ -48,15 +48,31 @@ export default function RegisterPayment() {
             return;
         }
 
-        addTransaction({
-            type: 'INCOME',
-            amount: parseFloat(amount),
-            description: description,
-            patientName: finalPatientName,
-            patientId: isRegistered ? selectedPatientId! : undefined,
-            procedure: procedure,
-            date: new Date().toISOString(),
-        });
+        const date = new Date().toISOString();
+        const numericAmount = parseFloat(amount);
+
+        if (isRegistered && selectedPatientId) {
+            // Para pacientes registrados, addVisit creará automáticamente la transacción vinculada
+            addVisit(selectedPatientId, {
+                date: date.split('T')[0], // YYYY-MM-DD
+                reason: procedure || 'Consulta General',
+                treatment: description || 'Pago registrado',
+                cost: numericAmount,
+                paid: true,
+                notes: 'Generado automáticamente desde Registrar Pago'
+            });
+        } else {
+            // Para pacientes anónimos, solo crear transacción (sin visita)
+            addTransaction({
+                type: 'INCOME',
+                amount: numericAmount,
+                description: description || 'Pago registrado',
+                patientName: finalPatientName,
+                patientId: undefined,
+                procedure: procedure || 'Consulta General',
+                date: date,
+            });
+        }
 
         router.back();
     };

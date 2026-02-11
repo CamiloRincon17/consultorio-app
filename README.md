@@ -14,6 +14,8 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 
    ```bash
    npx expo start
+   eas build -p android --profile preview
+
    ```
 
 In the output, you'll find options to open the app in a

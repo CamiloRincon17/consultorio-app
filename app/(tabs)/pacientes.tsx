@@ -2,11 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-    FlatList,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../constants/Colors";
@@ -82,7 +82,14 @@ const PatientCard = ({
             </Text>
           </View>
           <View style={styles.cardContent}>
-            <Text style={styles.patientName}>{item.name}</Text>
+            <View style={styles.patientNameRow}>
+              <Text style={styles.patientName}>{item.name}</Text>
+              {item.treatmentType === "ortodoncia" && item.appointmentDay && (
+                <View style={styles.dayBadge}>
+                  <Text style={styles.dayBadgeText}>Día {item.appointmentDay}</Text>
+                </View>
+              )}
+            </View>
             <View style={styles.detailRow}>
               <Ionicons
                 name={hasAppointment ? "calendar" : "alert-circle-outline"}
@@ -142,6 +149,19 @@ const PatientCard = ({
               style={styles.actionButton}
               onPress={() =>
                 router.push({
+                  pathname: "/historial-visitas",
+                  params: { id: item.id },
+                })
+              }
+            >
+              <Ionicons name="list-outline" size={20} color={Colors.success} />
+              <Text style={styles.actionText}>Historial</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() =>
+                router.push({
                   pathname: "/editar-paciente",
                   params: { id: item.id },
                 })
@@ -152,7 +172,7 @@ const PatientCard = ({
                 size={20}
                 color={Colors.textSecondary}
               />
-              <Text style={styles.actionText}>Editar Info</Text>
+              <Text style={styles.actionText}>Editar</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -227,8 +247,19 @@ export default function PatientsScreen() {
           );
         }}
         contentContainerStyle={styles.list}
-        extraData={expandedId}
+        extraData={[expandedId, patients]}
       />
+
+      {/* Floating button for orthodontic reassignment */}
+      {validPatients.some((p) => p.treatmentType === "ortodoncia") && (
+        <TouchableOpacity
+          style={styles.floatingButton}
+          onPress={() => router.push("/reasignar-ortodoncia")}
+        >
+          <Ionicons name="sync" size={24} color="white" />
+          <Text style={styles.floatingButtonText}>Reasignar Ortodoncia</Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }
@@ -308,11 +339,29 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
   },
+  patientNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
   patientName: {
     fontSize: 16,
     fontWeight: "600",
     color: Colors.text,
-    marginBottom: 4,
+  },
+  dayBadge: {
+    backgroundColor: Colors.primary + "20",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  dayBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.primary,
   },
   detailRow: {
     flexDirection: "row",
@@ -385,5 +434,27 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: "500",
     fontSize: 14,
+  },
+  floatingButton: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    backgroundColor: Colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  floatingButtonText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 15,
   },
 });

@@ -93,6 +93,22 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="reasignar-ortodoncia"
+        options={{
+          presentation: "modal",
+          title: "Reasignar Ortodoncia",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="historial-reasignaciones"
+        options={{
+          presentation: "modal",
+          title: "Historial de Reasignaciones",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="reporte-semanal"
         options={{
           presentation: "modal",
@@ -105,6 +121,12 @@ function RootLayoutNav() {
         options={{
           presentation: "modal",
           title: "Reporte Mensual",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="historial-visitas"
+        options={{
           headerShown: false,
         }}
       />
