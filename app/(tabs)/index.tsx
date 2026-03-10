@@ -46,8 +46,7 @@ export default function Dashboard() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Resumen</Text>
-          <Text style={styles.headerSubtitle}>Bienvenido, Doctor risitas</Text>
-          <Text style={styles.headerSubtitle}>ten un buen dia</Text>
+          <Text style={styles.headerSubtitle}>Bienvenido, Doctor</Text>
         </View>
         <TouchableOpacity onPress={() => router.push("/configuracion")}>
           <Ionicons name="settings-outline" size={24} color={Colors.text} />

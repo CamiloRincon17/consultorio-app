@@ -16,6 +16,7 @@ export default function RegisterPayment() {
 
     const [amount, setAmount] = useState('');
     const [procedure, setProcedure] = useState('');
+    const [isCustomProcedure, setIsCustomProcedure] = useState(false);
     const [description, setDescription] = useState('Consulta/Tratamiento');
 
     const [showPatientPicker, setShowPatientPicker] = useState(false);
@@ -29,6 +30,7 @@ export default function RegisterPayment() {
         setSelectedPatientId(patient.id);
         setAmount(patient.monthlyFee.toString());
         setProcedure('Control Mensual');
+        setIsCustomProcedure(false);
         setShowPatientPicker(false);
     };
 
@@ -120,12 +122,45 @@ export default function RegisterPayment() {
 
                 <View style={styles.inputGroup}>
                     <Text style={styles.label}>Procedimiento / Motivo</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Ej. Limpieza, Extracción, Control"
-                        value={procedure}
-                        onChangeText={setProcedure}
-                    />
+                    <View style={styles.optionsContainer}>
+                        {['Limpieza', 'Extracción', 'Control', 'Ortodoncia'].map(opt => (
+                            <TouchableOpacity
+                                key={opt}
+                                style={[styles.item, !isCustomProcedure && procedure === opt && styles.itemSelected]}
+                                onPress={() => {
+                                    setIsCustomProcedure(false);
+                                    setProcedure(opt);
+                                }}
+                            >
+                                <Text style={[styles.itemText, !isCustomProcedure && procedure === opt && styles.itemTextSelected]}>
+                                    {opt}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                        <TouchableOpacity
+                            style={[styles.item, isCustomProcedure && styles.itemSelected]}
+                            onPress={() => {
+                                setIsCustomProcedure(true);
+                                if (!['Limpieza', 'Extracción', 'Control', 'Ortodoncia'].includes(procedure)) {
+                                    // Keep existing custom procedure if they just switch back
+                                } else {
+                                    setProcedure('');
+                                }
+                            }}
+                        >
+                            <Text style={[styles.itemText, isCustomProcedure && styles.itemTextSelected]}>
+                                Otro
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                    {isCustomProcedure && (
+                        <TextInput
+                            style={[styles.input, { marginTop: 8 }]}
+                            placeholder="Escribe el procedimiento..."
+                            value={procedure}
+                            onChangeText={setProcedure}
+                        />
+                    )}
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -214,6 +249,32 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
         color: Colors.text,
+    },
+    optionsContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 4,
+    },
+    item: {
+        backgroundColor: 'white',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    itemSelected: {
+        backgroundColor: Colors.success,
+        borderColor: Colors.success,
+    },
+    itemText: {
+        fontSize: 15,
+        color: Colors.text,
+        fontWeight: '500',
+    },
+    itemTextSelected: {
+        color: 'white',
     },
     selector: {
         backgroundColor: 'white',
