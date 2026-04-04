@@ -2,25 +2,39 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useMemo } from "react";
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../../constants/Colors";
-import { useApp } from "../../context/AppContext";
-import { formatCOPShort } from "../../utils/formatCOP";
+import { Colors } from "../../shared/constants/Colors";
+import { usePatientsStore } from "../../features/patients/store";
+import { useFinanceStore } from "../../features/finance/store";
+import { formatCOPShort } from "../../shared/utils/formatCOP";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { patients, getDashboardStats } = useApp();
+  const patients = usePatientsStore((s) => s.patients);
+  const getDashboardStats = useFinanceStore((s) => s.getDashboardStats);
   const stats = useMemo(() => getDashboardStats(), [getDashboardStats]);
 
   const activePatients = patients.length;
-  // Mock data for appointments
-  const pendingAppointments = patients.length;
+
+  // Real pending appointments check
+  const now = new Date();
+  // Set to start of day for comparison to keep today's appointments active all day
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const upcomingAppointments = patients.filter((p) => {
+    if (!p.nextControlDate) return false;
+    const date = new Date(p.nextControlDate);
+    // Return true if it's today or in the future
+    return date >= todayStart;
+  });
+
+  const pendingAppointments = upcomingAppointments.length;
 
   const Card = ({ title, value, icon, color, onPress }: any) => (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
@@ -77,11 +91,11 @@ export default function Dashboard() {
             onPress={() => router.push("/reporte-semanal")}
           />
           <Card
-            title="Próx. Controles"
+            title="Próx. Citas"
             value={pendingAppointments}
             icon="calendar"
             color={Colors.warning}
-            onPress={() => router.push("/(tabs)/pacientes")}
+            onPress={() => router.push("/(tabs)/agenda")}
           />
         </View>
 

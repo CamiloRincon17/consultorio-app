@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { Colors } from "../../constants/Colors";
+import { Colors } from "../../shared/constants/Colors";
 
 export default function TabsLayout() {
     return (
@@ -32,6 +32,15 @@ export default function TabsLayout() {
                     title: "Pacientes",
                     tabBarIcon: ({ color, size }) => (
                         <Ionicons name="people-outline" size={size} color={color} />
+                    ),
+                }}
+            />
+            <Tabs.Screen
+                name="agenda"
+                options={{
+                    title: "Agenda",
+                    tabBarIcon: ({ color, size }) => (
+                        <Ionicons name="calendar-outline" size={size} color={color} />
                     ),
                 }}
             />

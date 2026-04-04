@@ -1,8 +1,11 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Colors } from '../shared/constants/Colors';
 import { useApp } from '../context/AppContext';
+import { FormInput, PrimaryButton } from '../shared/components';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function AddTransaction() {
     const router = useRouter();
@@ -11,6 +14,8 @@ export default function AddTransaction() {
     const [type, setType] = useState<'INCOME' | 'EXPENSE'>('INCOME');
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
+    const [date, setDate] = useState(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     const handleSave = () => {
         if (!amount.trim()) {
@@ -26,7 +31,7 @@ export default function AddTransaction() {
             type,
             amount: parseFloat(amount),
             description,
-            date: new Date().toISOString(),
+            date: date.toISOString(),
         });
 
         router.back();
@@ -53,34 +58,53 @@ export default function AddTransaction() {
                     </TouchableOpacity>
                 </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Monto (COP)</Text>
-                    <TextInput
-                        style={[styles.input, styles.amountInput, { color: type === 'INCOME' ? Colors.success : Colors.danger }]}
-                        placeholder="0"
-                        keyboardType="numeric"
-                        value={amount}
-                        onChangeText={setAmount}
-                        autoFocus
-                    />
+                <FormInput
+                    label="Monto (COP)"
+                    style={[styles.amountInput, { color: type === 'INCOME' ? Colors.success : Colors.danger }]}
+                    placeholder="0"
+                    keyboardType="numeric"
+                    value={amount}
+                    onChangeText={setAmount}
+                    autoFocus
+                />
+
+                <FormInput
+                    label="Descripción"
+                    placeholder="Ej. Pago de Ortodoncia"
+                    value={description}
+                    onChangeText={setDescription}
+                />
+
+                <View style={styles.datePickerContainer}>
+                    <Text style={styles.dateLabel}>Fecha del Movimiento</Text>
+                    <TouchableOpacity 
+                        style={styles.dateSelector}
+                        onPress={() => setShowDatePicker(true)}
+                    >
+                        <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                        <Text style={styles.dateText}>
+                            {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
+                        </Text>
+                    </TouchableOpacity>
+                    
+                    {showDatePicker && (
+                        <DateTimePicker
+                            value={date}
+                            mode="date"
+                            display="default"
+                            onChange={(event, selectedDate) => {
+                                setShowDatePicker(false);
+                                if (selectedDate) setDate(selectedDate);
+                            }}
+                        />
+                    )}
                 </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Descripción</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Ej. Pago de Ortodoncia"
-                        value={description}
-                        onChangeText={setDescription}
-                    />
-                </View>
-
-                <TouchableOpacity
-                    style={[styles.button, { backgroundColor: type === 'INCOME' ? Colors.success : Colors.danger }]}
+                <PrimaryButton
+                    label={`Guardar ${type === 'INCOME' ? 'Ingreso' : 'Gasto'}`}
+                    variant={type === 'INCOME' ? 'success' : 'danger'}
                     onPress={handleSave}
-                >
-                    <Text style={styles.buttonText}>Guardar {type === 'INCOME' ? 'Ingreso' : 'Gasto'}</Text>
-                </TouchableOpacity>
+                />
             </View>
         </KeyboardAvoidingView>
     );
@@ -129,36 +153,33 @@ const styles = StyleSheet.create({
     segmentTextActive: {
         color: Colors.text,
     },
-    inputGroup: {
-        gap: 8,
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: Colors.text,
-    },
-    input: {
-        backgroundColor: 'white',
-        padding: 16,
-        borderRadius: 12,
-        fontSize: 16,
-        borderWidth: 1,
-        borderColor: Colors.border,
-    },
     amountInput: {
         fontSize: 32,
         fontWeight: 'bold',
         textAlign: 'center',
     },
-    button: {
-        padding: 18,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 12,
+    datePickerContainer: {
+        marginBottom: 8,
     },
-    buttonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
+    dateLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: Colors.text,
+        marginBottom: 8,
+    },
+    dateSelector: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        gap: 12,
+    },
+    dateText: {
+        fontSize: 16,
+        color: Colors.text,
+        textTransform: 'capitalize',
     }
 });

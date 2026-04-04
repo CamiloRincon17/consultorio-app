@@ -15,15 +15,19 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { AutoReassignService } from "../services/AutoReassignService";
+import { useAuthStore } from "../features/auth/store";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { patients, transactions, importData } = useApp();
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  
+  const hasPinSet = !!useAuthStore((s) => s.pin);
+  const removePin = useAuthStore((s) => s.removePin);
 
   const handleExport = async () => {
     try {
@@ -511,6 +515,53 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </>
         )}
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🛡️ Seguridad</Text>
+        <TouchableOpacity
+          style={styles.item}
+          onPress={() => {
+            if (hasPinSet) {
+              Alert.alert(
+                "Quitar PIN",
+                "¿Estás seguro de que deseas eliminar el PIN de acceso?",
+                [
+                  { text: "Cancelar", style: "cancel" },
+                  { text: "Sí, quitar", style: "destructive", onPress: removePin },
+                ]
+              );
+            } else {
+              Alert.alert(
+                "Configurar PIN",
+                "Cierra la aplicación por completo y vuelve a abrirla para configurar un PIN de seguridad en la pantalla inicial."
+              );
+            }
+          }}
+        >
+          <View
+            style={[
+              styles.iconContainer,
+              { backgroundColor: hasPinSet ? Colors.danger + "20" : Colors.success + "20" },
+            ]}
+          >
+            <Ionicons
+              name={hasPinSet ? "lock-open-outline" : "lock-closed-outline"}
+              size={24}
+              color={hasPinSet ? Colors.danger : Colors.success}
+            />
+          </View>
+          <View style={styles.itemContent}>
+            <Text style={styles.itemTitle}>
+              {hasPinSet ? "Desactivar PIN de Seguridad" : "PIN No Configurado"}
+            </Text>
+            <Text style={styles.itemSubtitle}>
+              {hasPinSet
+                ? "Quitar el bloqueo al iniciar la app"
+                : "Se pedirá configurar uno al iniciar"}
+            </Text>
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* Data and Backup Section */}

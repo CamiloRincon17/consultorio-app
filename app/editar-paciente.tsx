@@ -1,9 +1,9 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Colors } from '../shared/constants/Colors';
 import { useApp } from '../context/AppContext';
-
+import { FormInput, PrimaryButton } from '../shared/components';
 export default function EditPatient() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
@@ -99,57 +99,50 @@ export default function EditPatient() {
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
             <ScrollView contentContainerStyle={styles.form}>
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Nombre Completo</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={name}
-                        onChangeText={setName}
-                        placeholder="Nombre del paciente"
-                    />
-                </View>
+                <FormInput
+                    label="Nombre Completo"
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="Nombre del paciente"
+                />
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Teléfono</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={phone}
-                        onChangeText={setPhone}
-                        placeholder="Num. Celular"
-                        keyboardType="phone-pad"
-                    />
-                </View>
+                <FormInput
+                    label="Teléfono"
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="Num. Celular"
+                    keyboardType="phone-pad"
+                />
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Cuota Mensual ($)</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={monthlyFee}
-                        onChangeText={setMonthlyFee}
-                        placeholder="0.00"
-                        keyboardType="numeric"
-                    />
-                </View>
+                <FormInput
+                    label="Cuota Mensual ($)"
+                    value={monthlyFee}
+                    onChangeText={setMonthlyFee}
+                    placeholder="0.00"
+                    keyboardType="numeric"
+                />
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Notas / Antecedentes</Text>
-                    <TextInput
-                        style={[styles.input, styles.textArea]}
-                        value={notes}
-                        onChangeText={setNotes}
-                        placeholder="Alergias, condiciones, etc."
-                        multiline
-                        numberOfLines={4}
-                    />
-                </View>
+                <FormInput
+                    label="Notas / Antecedentes"
+                    value={notes}
+                    onChangeText={setNotes}
+                    placeholder="Alergias, condiciones, etc."
+                    multiline
+                    numberOfLines={4}
+                    style={styles.textArea}
+                />
 
-                <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                    <Text style={styles.saveButtonText}>Guardar Cambios</Text>
-                </TouchableOpacity>
+                <PrimaryButton 
+                    label="Guardar Cambios" 
+                    onPress={handleSave} 
+                />
 
-                <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-                    <Text style={styles.deleteButtonText}>Eliminar Paciente</Text>
-                </TouchableOpacity>
+                <PrimaryButton 
+                    label="Eliminar Paciente" 
+                    onPress={handleDelete} 
+                    variant="danger" 
+                    style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.danger }}
+                />
             </ScrollView>
         </KeyboardAvoidingView>
     );
@@ -174,49 +167,8 @@ const styles = StyleSheet.create({
         padding: 24,
         gap: 20,
     },
-    inputGroup: {
-        gap: 8,
-    },
-    label: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: Colors.text,
-    },
-    input: {
-        backgroundColor: 'white',
-        padding: 16,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: Colors.border,
-        fontSize: 16,
-    },
     textArea: {
         height: 100,
         textAlignVertical: 'top',
-    },
-    saveButton: {
-        backgroundColor: Colors.primary,
-        padding: 18,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 12,
-    },
-    saveButtonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    deleteButton: {
-        padding: 18,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 8,
-        borderWidth: 1,
-        borderColor: Colors.danger,
-    },
-    deleteButtonText: {
-        color: Colors.danger,
-        fontSize: 16,
-        fontWeight: 'bold',
     }
 });

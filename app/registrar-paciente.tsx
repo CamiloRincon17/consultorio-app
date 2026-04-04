@@ -10,13 +10,13 @@ import {
   StyleSheet,
   Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
+import { FormInput, PrimaryButton } from "../shared/components";
 
 export default function AddPatient() {
   const router = useRouter();
@@ -127,38 +127,29 @@ export default function AddPatient() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Nombre Completo</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ej. Juan Pérez"
-            value={name}
-            onChangeText={setName}
-            autoFocus
-          />
-        </View>
+        <FormInput
+          label="Nombre Completo"
+          placeholder="Ej. Juan Pérez"
+          value={name}
+          onChangeText={setName}
+          autoFocus
+        />
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Teléfono</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ej. 55 1234 5678"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-          />
-        </View>
+        <FormInput
+          label="Teléfono"
+          placeholder="Ej. 55 1234 5678"
+          keyboardType="phone-pad"
+          value={phone}
+          onChangeText={setPhone}
+        />
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Mensualidad ($)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="0.00"
-            keyboardType="numeric"
-            value={monthlyFee}
-            onChangeText={setMonthlyFee}
-          />
-        </View>
+        <FormInput
+          label="Mensualidad ($)"
+          placeholder="0.00"
+          keyboardType="numeric"
+          value={monthlyFee}
+          onChangeText={setMonthlyFee}
+        />
 
         {/* Treatment Type */}
         <View style={styles.inputGroup}>
@@ -250,26 +241,21 @@ export default function AddPatient() {
               </View>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Día del mes para citas</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Ej. 5 (para citas el día 5 de cada mes)"
-                keyboardType="numeric"
-                value={appointmentDay}
-                onChangeText={(text) => {
-                  // Only allow numbers 1-31
-                  const num = parseInt(text, 10);
-                  if (text === "" || (num >= 1 && num <= 31)) {
-                    setAppointmentDay(text);
-                  }
-                }}
-                maxLength={2}
-              />
-              <Text style={styles.helperText}>
-                💡 Este día se usará para calcular las próximas citas automáticamente
-              </Text>
-            </View>
+            <FormInput
+              label="Día del mes para citas"
+              placeholder="Ej. 5 (para citas el día 5 de cada mes)"
+              keyboardType="numeric"
+              value={appointmentDay}
+              onChangeText={(text) => {
+                // Only allow numbers 1-31
+                const num = parseInt(text, 10);
+                if (text === "" || (num >= 1 && num <= 31)) {
+                  setAppointmentDay(text);
+                }
+              }}
+              maxLength={2}
+              helperText="💡 Este día se usará para calcular las próximas citas automáticamente"
+            />
           </>
         )}
 
@@ -367,9 +353,7 @@ export default function AddPatient() {
           </View>
         )}
 
-        <TouchableOpacity style={styles.button} onPress={handleSave}>
-          <Text style={styles.buttonText}>Guardar Paciente</Text>
-        </TouchableOpacity>
+        <PrimaryButton label="Guardar Paciente" onPress={handleSave} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -517,23 +501,5 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "600",
-  },
-  button: {
-    backgroundColor: Colors.primary,
-    padding: 18,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  buttonText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  helperText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 4,
-    fontStyle: "italic",
   },
 });

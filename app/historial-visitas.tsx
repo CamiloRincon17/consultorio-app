@@ -13,9 +13,9 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { useApp, Visit } from "../context/AppContext";
-import { formatCOPShort } from "../utils/formatCOP";
+import { formatCOPShort } from "../shared/utils/formatCOP";
 
 interface VisitWithPatient extends Visit {
     patientName?: string;

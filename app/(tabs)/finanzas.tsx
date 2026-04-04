@@ -10,13 +10,18 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../../constants/Colors";
-import { Transaction, useApp } from "../../context/AppContext";
-import { formatCOPShort } from "../../utils/formatCOP";
+import { Colors } from "../../shared/constants/Colors";
+import { Transaction } from "../../features/finance/types";
+import { useFinanceStore } from "../../features/finance/store";
+import { usePatientsStore } from "../../features/patients/store";
+import { formatCOPShort } from "../../shared/utils/formatCOP";
+import { TransactionCard } from "../../features/finance/components/TransactionCard";
 
 export default function FinanceScreen() {
   const router = useRouter();
-  const { transactions, patients, getFinancialSummary } = useApp();
+  const transactions = useFinanceStore((s) => s.transactions);
+  const getFinancialSummary = useFinanceStore((s) => s.getFinancialSummary);
+  const patients = usePatientsStore((s) => s.patients);
   const summary = getFinancialSummary();
 
   const monthlyStats = React.useMemo(() => {
@@ -86,69 +91,18 @@ export default function FinanceScreen() {
     }));
   }, [transactions]);
 
-  const getDisplayName = (item: Transaction) => {
-    if (item.type === "EXPENSE") return item.description;
-
-    // Priority 1: Direct patient name (anonymous or snapshot)
-    if (item.patientName) return item.patientName;
-
-    // Priority 2: Look up patient in current list
-    if (item.patientId) {
-      const patient = patients.find((p) => p.id === item.patientId);
-      if (patient) return patient.name;
-    }
-
-    return item.description;
-  };
-
   const renderItem = ({ item }: { item: Transaction }) => {
-    const displayName = getDisplayName(item);
-    const subTitle = displayName !== item.description ? item.description : "";
-
     return (
-      <TouchableOpacity
-        style={styles.card}
+      <TransactionCard
+        item={item}
+        patients={patients}
         onPress={() =>
           router.push({
             pathname: "/editar-transaccion",
             params: { id: item.id },
           })
         }
-      >
-        <View
-          style={[
-            styles.iconContainer,
-            {
-              backgroundColor:
-                item.type === "INCOME"
-                  ? Colors.success + "20"
-                  : Colors.danger + "20",
-            },
-          ]}
-        >
-          <Ionicons
-            name={item.type === "INCOME" ? "arrow-up" : "arrow-down"}
-            size={24}
-            color={item.type === "INCOME" ? Colors.success : Colors.danger}
-          />
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.description}>{displayName}</Text>
-          {subTitle ? <Text style={styles.subtitle}>{subTitle}</Text> : null}
-          <Text style={styles.date}>
-            {new Date(item.date).toLocaleDateString()}
-          </Text>
-        </View>
-        <Text
-          style={[
-            styles.amount,
-            { color: item.type === "INCOME" ? Colors.success : Colors.danger },
-          ]}
-        >
-          {item.type === "INCOME" ? "+" : "-"}
-          {formatCOPShort(item.amount)}
-        </Text>
-      </TouchableOpacity>
+      />
     );
   };
 
@@ -191,7 +145,7 @@ export default function FinanceScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <Text style={styles.sectionTitle}>
-            {transactions.length > 0 ? "Historial" : ""}
+            {transactions.length > 0 ? "Historial de movimientos" : ""}
           </Text>
         }
         ListEmptyComponent={
@@ -299,43 +253,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.text,
     marginBottom: 8,
-  },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 12,
-  },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  cardContent: {
-    flex: 1,
-  },
-  description: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: Colors.text,
-  },
-  date: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  subtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontStyle: "italic",
-  },
-  amount: {
-    fontSize: 16,
-    fontWeight: "bold",
   },
   emptyContainer: {
     alignItems: "center",

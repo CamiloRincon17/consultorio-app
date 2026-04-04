@@ -8,12 +8,14 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
-    TouchableOpacity,
     View,
+    TouchableOpacity,
 } from "react-native";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
+import { FormInput, PrimaryButton } from "../shared/components";
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function EditTransaction() {
   const router = useRouter();
@@ -29,6 +31,8 @@ export default function EditTransaction() {
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [procedure, setProcedure] = useState("");
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   // Actualizar el estado cuando cambia la transacción
   useEffect(() => {
@@ -36,6 +40,9 @@ export default function EditTransaction() {
       setAmount(transaction.amount.toString());
       setDescription(transaction.description);
       setProcedure(transaction.procedure || "");
+      if (transaction.date) {
+        setDate(new Date(transaction.date));
+      }
     }
   }, [transaction]);
 
@@ -46,6 +53,9 @@ export default function EditTransaction() {
         setAmount(transaction.amount.toString());
         setDescription(transaction.description);
         setProcedure(transaction.procedure || "");
+        if (transaction.date) {
+          setDate(new Date(transaction.date));
+        }
       }
     }, [transaction]),
   );
@@ -60,6 +70,7 @@ export default function EditTransaction() {
       amount: parseFloat(amount),
       description,
       procedure,
+      date: date.toISOString(),
     });
 
     Alert.alert("Éxito", "Transacción actualizada");
@@ -104,51 +115,66 @@ export default function EditTransaction() {
           <Text style={styles.headerTitle}>
             {transaction.type === "INCOME" ? "Ingreso" : "Gasto"}
           </Text>
-          <Text style={styles.headerSubtitle}>
-            {new Date(transaction.date).toLocaleDateString()}
-          </Text>
         </View>
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Monto (COP)</Text>
-          <TextInput
-            style={[styles.input, styles.amountInput]}
-            value={amount}
-            onChangeText={setAmount}
-            placeholder="0"
-            keyboardType="numeric"
-          />
-        </View>
+        <FormInput
+          label="Monto (COP)"
+          style={styles.amountInput}
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0"
+          keyboardType="numeric"
+        />
 
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Descripción / Concepto</Text>
-          <TextInput
-            style={styles.input}
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Consulta..."
-          />
-        </View>
+        <FormInput
+          label="Descripción / Concepto"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Consulta..."
+        />
 
         {transaction.type === "INCOME" && (
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Procedimiento</Text>
-            <TextInput
-              style={styles.input}
-              value={procedure}
-              onChangeText={setProcedure}
-              placeholder="Limpieza, etc."
-            />
-          </View>
+          <FormInput
+            label="Procedimiento"
+            value={procedure}
+            onChangeText={setProcedure}
+            placeholder="Limpieza, etc."
+          />
         )}
 
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>Guardar Cambios</Text>
-        </TouchableOpacity>
+        <View style={styles.datePickerContainer}>
+          <Text style={styles.dateLabel}>Fecha del Movimiento</Text>
+          <TouchableOpacity 
+            style={styles.dateSelector}
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+            <Text style={styles.dateText}>
+              {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
+            </Text>
+          </TouchableOpacity>
+          
+          {showDatePicker && (
+            <DateTimePicker
+              value={date}
+              mode="date"
+              display="default"
+              onChange={(event, selectedDate) => {
+                setShowDatePicker(false);
+                if (selectedDate) setDate(selectedDate);
+              }}
+            />
+          )}
+        </View>
 
-        <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-          <Text style={styles.deleteButtonText}>Eliminar Registro</Text>
-        </TouchableOpacity>
+        <PrimaryButton label="Guardar Cambios" onPress={handleSave} />
+
+        <PrimaryButton
+          label="Eliminar Registro"
+          onPress={handleDelete}
+          variant="danger"
+          style={{ backgroundColor: "transparent", borderWidth: 1, borderColor: Colors.danger }}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -186,51 +212,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textSecondary,
   },
-  inputGroup: {
-    gap: 8,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.text,
-  },
-  input: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    fontSize: 16,
-  },
   amountInput: {
     fontSize: 24,
     fontWeight: "bold",
     color: Colors.primary,
     textAlign: "center",
   },
-  saveButton: {
-    backgroundColor: Colors.primary,
-    padding: 18,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 12,
+  datePickerContainer: {
+    marginBottom: 8,
   },
-  saveButtonText: {
-    color: "white",
-    fontSize: 18,
-    fontWeight: "bold",
+  dateLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
+    marginBottom: 8,
   },
-  deleteButton: {
-    padding: 18,
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: 'white',
     borderRadius: 12,
-    alignItems: "center",
-    marginTop: 8,
     borderWidth: 1,
-    borderColor: Colors.danger,
+    borderColor: Colors.border,
+    gap: 12,
   },
-  deleteButtonText: {
-    color: Colors.danger,
+  dateText: {
     fontSize: 16,
-    fontWeight: "bold",
-  },
+    color: Colors.text,
+    textTransform: 'capitalize',
+  }
 });

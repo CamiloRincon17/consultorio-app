@@ -9,9 +9,9 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
-import { formatCOPShort } from "../utils/formatCOP";
+import { formatCOPShort } from "../shared/utils/formatCOP";
 
 export default function WeeklyReportScreen() {
   const router = useRouter();

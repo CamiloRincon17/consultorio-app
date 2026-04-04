@@ -13,7 +13,7 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../constants/Colors";
+import { Colors } from "../shared/constants/Colors";
 import { Patient, useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 

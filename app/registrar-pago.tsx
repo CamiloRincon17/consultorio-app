@@ -2,9 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { Colors } from '../shared/constants/Colors';
+import { FormInput, PrimaryButton } from '../shared/components';
 import { Patient, useApp } from '../context/AppContext';
-import { formatCOPShort } from '../utils/formatCOP';
+import { formatCOPShort } from '../shared/utils/formatCOP';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function RegisterPayment() {
     const router = useRouter();
@@ -18,6 +20,9 @@ export default function RegisterPayment() {
     const [procedure, setProcedure] = useState('');
     const [isCustomProcedure, setIsCustomProcedure] = useState(false);
     const [description, setDescription] = useState('Consulta/Tratamiento');
+
+    const [date, setDate] = useState(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     const [showPatientPicker, setShowPatientPicker] = useState(false);
 
@@ -50,13 +55,13 @@ export default function RegisterPayment() {
             return;
         }
 
-        const date = new Date().toISOString();
+        const dateString = date.toISOString();
         const numericAmount = parseFloat(amount);
 
         if (isRegistered && selectedPatientId) {
             // Para pacientes registrados, addVisit creará automáticamente la transacción vinculada
             addVisit(selectedPatientId, {
-                date: date.split('T')[0], // YYYY-MM-DD
+                date: dateString.split('T')[0], // YYYY-MM-DD
                 reason: procedure || 'Consulta General',
                 treatment: description || 'Pago registrado',
                 cost: numericAmount,
@@ -72,11 +77,15 @@ export default function RegisterPayment() {
                 patientName: finalPatientName,
                 patientId: undefined,
                 procedure: procedure || 'Consulta General',
-                date: date,
+                date: dateString,
             });
         }
 
-        router.back();
+        Alert.alert(
+            "✅ Pago Registrado",
+            "El pago se ha registrado exitosamente.",
+            [{ text: "OK", onPress: () => router.back() }]
+        );
     };
 
     return (
@@ -109,15 +118,12 @@ export default function RegisterPayment() {
                         </TouchableOpacity>
                     </View>
                 ) : (
-                    <View style={styles.inputGroup}>
-                        <Text style={styles.label}>Nombre del Paciente</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Ej. Cliente Ocasional"
-                            value={anonymousName}
-                            onChangeText={setAnonymousName}
-                        />
-                    </View>
+                    <FormInput
+                        label="Nombre del Paciente"
+                        placeholder="Ej. Cliente Ocasional"
+                        value={anonymousName}
+                        onChangeText={setAnonymousName}
+                    />
                 )}
 
                 <View style={styles.inputGroup}>
@@ -163,33 +169,52 @@ export default function RegisterPayment() {
                     )}
                 </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Monto a Cobrar (COP)</Text>
-                    <TextInput
-                        style={[styles.input, styles.amountInput]}
-                        placeholder="0"
-                        keyboardType="numeric"
-                        value={amount}
-                        onChangeText={setAmount}
-                    />
+                <FormInput
+                    label="Monto a Cobrar (COP)"
+                    style={styles.amountInput}
+                    placeholder="0"
+                    keyboardType="numeric"
+                    value={amount}
+                    onChangeText={setAmount}
+                />
+
+                <View style={styles.datePickerContainer}>
+                    <Text style={styles.dateLabel}>Fecha del Movimiento</Text>
+                    <TouchableOpacity 
+                        style={styles.dateSelector}
+                        onPress={() => setShowDatePicker(true)}
+                    >
+                        <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                        <Text style={styles.dateText}>
+                            {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
+                        </Text>
+                    </TouchableOpacity>
+                    
+                    {showDatePicker && (
+                        <DateTimePicker
+                            value={date}
+                            mode="date"
+                            display="default"
+                            onChange={(event, selectedDate) => {
+                                setShowDatePicker(false);
+                                if (selectedDate) setDate(selectedDate);
+                            }}
+                        />
+                    )}
                 </View>
 
-                <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Nota Adicional</Text>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Detalles opcionales..."
-                        value={description}
-                        onChangeText={setDescription}
-                    />
-                </View>
+                <FormInput
+                    label="Nota Adicional"
+                    placeholder="Detalles opcionales..."
+                    value={description}
+                    onChangeText={setDescription}
+                />
 
-                <TouchableOpacity
-                    style={styles.button}
+                <PrimaryButton
+                    label="Registrar Ingreso"
+                    variant="success"
                     onPress={handleSave}
-                >
-                    <Text style={styles.buttonText}>Registrar Ingreso</Text>
-                </TouchableOpacity>
+                />
             </ScrollView>
 
             {/* Patient Picker Modal */}
@@ -308,17 +333,29 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: Colors.success,
     },
-    button: {
-        backgroundColor: Colors.success,
-        padding: 18,
-        borderRadius: 12,
-        alignItems: 'center',
-        marginTop: 12,
+    datePickerContainer: {
+        marginBottom: 8,
     },
-    buttonText: {
-        color: 'white',
-        fontSize: 18,
-        fontWeight: 'bold',
+    dateLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: Colors.text,
+        marginBottom: 8,
+    },
+    dateSelector: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        backgroundColor: 'white',
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        gap: 12,
+    },
+    dateText: {
+        fontSize: 16,
+        color: Colors.text,
+        textTransform: 'capitalize',
     },
     modalOverlay: {
         flex: 1,
