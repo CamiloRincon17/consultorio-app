@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
+    Alert,
+    Linking,
     ScrollView,
     StyleSheet,
     Text,
@@ -51,6 +53,10 @@ export default function AgendaScreen() {
 
             if (selectedDateFilter === "TODAY") {
                 return date.getTime() === today.getTime();
+            } else if (selectedDateFilter === "TOMORROW") {
+                const tomorrow = new Date(today);
+                tomorrow.setDate(today.getDate() + 1);
+                return date.getTime() === tomorrow.getTime();
             } else if (selectedDateFilter === "WEEK") {
                 const nextWeek = new Date(today);
                 nextWeek.setDate(today.getDate() + 7);
@@ -109,61 +115,153 @@ export default function AgendaScreen() {
 
     const sortedDates = Object.keys(groupedAgenda).sort();
 
+    const buildAgendaMessage = useCallback(() => {
+        if (sortedDates.length === 0) {
+            return "";
+        }
+
+        const filterLabel =
+            selectedDateFilter === "TODAY" ? "Hoy" :
+            selectedDateFilter === "TOMORROW" ? "Mañana" :
+            selectedDateFilter === "WEEK" ? "Próximos 7 días" : "Todas";
+
+        let message = `📋 *AGENDA DEL CONSULTORIO*\n`;
+        message += `📅 Filtro: ${filterLabel}\n`;
+        message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+        sortedDates.forEach((dateString) => {
+            const dateObj = new Date(dateString + "T12:00:00Z");
+            const dayName = dateObj.toLocaleDateString("es-ES", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+            });
+
+            message += `📌 *${dayName.charAt(0).toUpperCase() + dayName.slice(1)}*\n`;
+
+            groupedAgenda[dateString].forEach((p) => {
+                const timeStr = p.controlDateObj.toLocaleTimeString("en-US", {
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                });
+                const type = p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
+                message += `  🕐 ${timeStr} — *${p.name}* (${type})\n`;
+            });
+
+            message += `\n`;
+        });
+
+        message += `Total: ${filteredAgenda.length} cita(s)`;
+        return message;
+    }, [sortedDates, groupedAgenda, filteredAgenda, selectedDateFilter]);
+
+    const shareToWhatsApp = useCallback(async () => {
+        const message = buildAgendaMessage();
+
+        if (!message) {
+            Alert.alert("Sin citas", "No hay citas para compartir con el filtro actual.");
+            return;
+        }
+
+        const url = `whatsapp://send?text=${encodeURIComponent(message)}`;
+
+        try {
+            const supported = await Linking.canOpenURL(url);
+            if (supported) {
+                await Linking.openURL(url);
+            } else {
+                Alert.alert(
+                    "WhatsApp no disponible",
+                    "No se encontró WhatsApp instalado en el dispositivo."
+                );
+            }
+        } catch {
+            Alert.alert("Error", "No se pudo abrir WhatsApp.");
+        }
+    }, [buildAgendaMessage]);
+
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
                 <Text style={styles.title}>Agenda</Text>
+                <TouchableOpacity
+                    style={styles.whatsappButton}
+                    onPress={shareToWhatsApp}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="logo-whatsapp" size={20} color="white" />
+                    <Text style={styles.whatsappButtonText}>Enviar</Text>
+                </TouchableOpacity>
             </View>
 
-            <View style={styles.filterContainer}>
-                <TouchableOpacity
-                    style={[
-                        styles.filterButton,
-                        selectedDateFilter === "TODAY" && styles.filterButtonActive,
-                    ]}
-                    onPress={() => setSelectedDateFilter("TODAY")}
-                >
-                    <Text
+            <View style={styles.filterContainerOuter}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer}>
+                    <TouchableOpacity
                         style={[
-                            styles.filterText,
-                            selectedDateFilter === "TODAY" && styles.filterTextActive,
+                            styles.filterButton,
+                            selectedDateFilter === "TODAY" && styles.filterButtonActive,
                         ]}
+                        onPress={() => setSelectedDateFilter("TODAY")}
                     >
-                        Hoy
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[
-                        styles.filterButton,
-                        selectedDateFilter === "WEEK" && styles.filterButtonActive,
-                    ]}
-                    onPress={() => setSelectedDateFilter("WEEK")}
-                >
-                    <Text
+                        <Text
+                            style={[
+                                styles.filterText,
+                                selectedDateFilter === "TODAY" && styles.filterTextActive,
+                            ]}
+                        >
+                            Hoy
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[
-                            styles.filterText,
-                            selectedDateFilter === "WEEK" && styles.filterTextActive,
+                            styles.filterButton,
+                            selectedDateFilter === "TOMORROW" && styles.filterButtonActive,
                         ]}
+                        onPress={() => setSelectedDateFilter("TOMORROW")}
                     >
-                        Próx. 7 días
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[
-                        styles.filterButton,
-                        selectedDateFilter === "ALL" && styles.filterButtonActive,
-                    ]}
-                    onPress={() => setSelectedDateFilter("ALL")}
-                >
-                    <Text
+                        <Text
+                            style={[
+                                styles.filterText,
+                                selectedDateFilter === "TOMORROW" && styles.filterTextActive,
+                            ]}
+                        >
+                            Mañana
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
                         style={[
-                            styles.filterText,
-                            selectedDateFilter === "ALL" && styles.filterTextActive,
+                            styles.filterButton,
+                            selectedDateFilter === "WEEK" && styles.filterButtonActive,
                         ]}
+                        onPress={() => setSelectedDateFilter("WEEK")}
                     >
-                        Todas
-                    </Text>
-                </TouchableOpacity>
+                        <Text
+                            style={[
+                                styles.filterText,
+                                selectedDateFilter === "WEEK" && styles.filterTextActive,
+                            ]}
+                        >
+                            Próx. 7 días
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            styles.filterButton,
+                            selectedDateFilter === "ALL" && styles.filterButtonActive,
+                        ]}
+                        onPress={() => setSelectedDateFilter("ALL")}
+                    >
+                        <Text
+                            style={[
+                                styles.filterText,
+                                selectedDateFilter === "ALL" && styles.filterTextActive,
+                            ]}
+                        >
+                            Todas
+                        </Text>
+                    </TouchableOpacity>
+                </ScrollView>
             </View>
 
             <ScrollView contentContainerStyle={styles.list}>
@@ -204,6 +302,9 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.background,
     },
     header: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
         padding: 16,
         backgroundColor: "white",
         borderBottomWidth: 1,
@@ -214,13 +315,29 @@ const styles = StyleSheet.create({
         fontWeight: "bold",
         color: Colors.text,
     },
+    whatsappButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#25D366",
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: 20,
+        gap: 6,
+    },
+    whatsappButtonText: {
+        color: "white",
+        fontWeight: "600",
+        fontSize: 14,
+    },
+    filterContainerOuter: {
+        backgroundColor: "white",
+        borderBottomWidth: 1,
+        borderBottomColor: Colors.border,
+    },
     filterContainer: {
         flexDirection: "row",
         padding: 16,
         gap: 8,
-        backgroundColor: "white",
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
     },
     filterButton: {
         paddingVertical: 8,

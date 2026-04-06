@@ -65,6 +65,12 @@ export const PatientCard = ({
     hour12: true,
   }) : "";
 
+  // Optimize RAM: Calc days dynamically without storing it continuously. 
+  // It handles the calculation smoothly during render which is O(1) time and memory.
+  const startDate = item.startDate ? new Date(item.startDate) : new Date();
+  const diffTime = Math.max(0, new Date().getTime() - startDate.getTime());
+  const registeredDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
   return (
     <View style={[styles.card, isExpanded && styles.cardExpanded]}>
       <TouchableOpacity
@@ -125,6 +131,12 @@ export const PatientCard = ({
             <View style={styles.statItem}>
               <Text style={styles.statLabel}>Visitas</Text>
               <Text style={styles.statValue}>{stats?.visitCount || 0}</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statLabel}>Antigüedad</Text>
+              <Text style={styles.statValue}>
+                {registeredDays} {registeredDays === 1 ? 'día' : 'días'}
+              </Text>
             </View>
           </View>
 
@@ -188,7 +200,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
-    overflow: "hidden",
   },
   cardTouchable: {
     width: "100%",
@@ -266,6 +277,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9F9F9",
     borderTopWidth: 1,
     borderTopColor: "#EEE",
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
   },
   statsRow: {
     flexDirection: "row",
@@ -273,11 +286,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   statItem: {
+    flex: 1,
+    marginHorizontal: 4,
     alignItems: "center",
     backgroundColor: "white",
     padding: 10,
     borderRadius: 8,
-    minWidth: 100,
     shadowColor: "#000",
     shadowOpacity: 0.05,
     shadowRadius: 2,

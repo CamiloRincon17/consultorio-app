@@ -74,7 +74,12 @@ export default function PatientsScreen() {
   }, [patients, searchQuery, activeFilter]);
 
   const toggleExpand = (id: string) => {
-    setExpandedId((prev) => (prev === id ? null : id));
+    setExpandedId((prev) => {
+      if (prev === id) {
+        return null;
+      }
+      return id;
+    });
   };
 
   return (
@@ -198,6 +203,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     backgroundColor: "white",
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,

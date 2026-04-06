@@ -8,6 +8,26 @@ import { Patient, useApp } from '../context/AppContext';
 import { formatCOPShort } from '../shared/utils/formatCOP';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
+const PROCEDIMIENTOS_PREDEFINIDOS = [
+    { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
+    { id: 'Limpieza dental', nombre: 'Limpieza dental', precio: '80000' },
+    { id: 'Extracción dental', nombre: 'Extracción dental', precio: '80000' },
+    { id: 'Extracción de cordal', nombre: 'Extracción de cordal', precio: '150000' },
+    { id: 'Tratamiento de conducto unirradicular', nombre: 'Tratamiento de conducto unirradicular', precio: '310000' },
+    { id: 'Tratamiento de conducto birradicular', nombre: 'Tratamiento de conducto birradicular', precio: '350000' },
+    { id: 'Tratamiento de conducto multirradicular', nombre: 'Tratamiento de conducto multirradicular', precio: '410000' },
+    { id: 'Retratamiento unirradicular', nombre: 'Retratamiento unirradicular', precio: '350000' },
+    { id: 'Retratamiento birradicular', nombre: 'Retratamiento birradicular', precio: '380000' },
+    { id: 'Retratamiento multirradicular', nombre: 'Retratamiento multirradicular', precio: '450000' },
+    { id: 'Montaje de ortodoncia', nombre: 'Montaje de ortodoncia', precio: '300000' },
+    { id: 'Control de ortodoncia', nombre: 'Control de ortodoncia', precio: '60000' },
+    { id: 'Reparación de brackets', nombre: 'Reparación de brackets', precio: '25000' },
+    { id: 'Recorte de encía', nombre: 'Recorte de encía', precio: '70000' },
+    { id: 'Corona metal cerámica', nombre: 'Corona metal cerámica', precio: '600000' },
+    { id: 'Corona libre de metal', nombre: 'Corona libre de metal', precio: '900000' },
+    { id: 'Protesis(Acker)', nombre: 'Protesis(Acker)', precio: '150000' },
+];
+
 export default function RegisterPayment() {
     const router = useRouter();
     const { patients, addTransaction, addVisit } = useApp();
@@ -25,11 +45,29 @@ export default function RegisterPayment() {
     const [showDatePicker, setShowDatePicker] = useState(false);
 
     const [showPatientPicker, setShowPatientPicker] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const [showProcedurePicker, setShowProcedurePicker] = useState(false);
+    const [searchProcedureQuery, setSearchProcedureQuery] = useState('');
 
     const selectedPatient = useMemo(() =>
         patients.find(p => p.id === selectedPatientId),
         [patients, selectedPatientId]
     );
+
+    const filteredPatients = useMemo(() => {
+        if (!searchQuery.trim()) return patients;
+        return patients.filter(p => 
+            p.name.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [patients, searchQuery]);
+
+    const filteredProcedures = useMemo(() => {
+        if (!searchProcedureQuery.trim()) return PROCEDIMIENTOS_PREDEFINIDOS;
+        return PROCEDIMIENTOS_PREDEFINIDOS.filter(p => 
+            p.nombre.toLowerCase().includes(searchProcedureQuery.toLowerCase())
+        );
+    }, [searchProcedureQuery]);
 
     const handleSelectPatient = (patient: Patient) => {
         setSelectedPatientId(patient.id);
@@ -128,37 +166,15 @@ export default function RegisterPayment() {
 
                 <View style={styles.inputGroup}>
                     <Text style={styles.label}>Procedimiento / Motivo</Text>
-                    <View style={styles.optionsContainer}>
-                        {['Limpieza', 'Extracción', 'Control', 'Ortodoncia'].map(opt => (
-                            <TouchableOpacity
-                                key={opt}
-                                style={[styles.item, !isCustomProcedure && procedure === opt && styles.itemSelected]}
-                                onPress={() => {
-                                    setIsCustomProcedure(false);
-                                    setProcedure(opt);
-                                }}
-                            >
-                                <Text style={[styles.itemText, !isCustomProcedure && procedure === opt && styles.itemTextSelected]}>
-                                    {opt}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                        <TouchableOpacity
-                            style={[styles.item, isCustomProcedure && styles.itemSelected]}
-                            onPress={() => {
-                                setIsCustomProcedure(true);
-                                if (!['Limpieza', 'Extracción', 'Control', 'Ortodoncia'].includes(procedure)) {
-                                    // Keep existing custom procedure if they just switch back
-                                } else {
-                                    setProcedure('');
-                                }
-                            }}
-                        >
-                            <Text style={[styles.itemText, isCustomProcedure && styles.itemTextSelected]}>
-                                Otro
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
+                    <TouchableOpacity
+                        style={styles.selector}
+                        onPress={() => setShowProcedurePicker(true)}
+                    >
+                        <Text style={procedure || isCustomProcedure ? styles.selectorText : styles.placeholderText}>
+                            {isCustomProcedure ? 'Otro (Personalizado)' : (procedure || 'Seleccionar procedimiento...')}
+                        </Text>
+                        <Ionicons name="chevron-down" size={20} color={Colors.textSecondary} />
+                    </TouchableOpacity>
                     {isCustomProcedure && (
                         <TextInput
                             style={[styles.input, { marginTop: 8 }]}
@@ -218,7 +234,7 @@ export default function RegisterPayment() {
             </ScrollView>
 
             {/* Patient Picker Modal */}
-            <Modal visible={showPatientPicker} animationType="slide" transparent>
+            <Modal visible={showPatientPicker} animationType="slide" transparent onRequestClose={() => setShowPatientPicker(false)}>
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
@@ -227,8 +243,18 @@ export default function RegisterPayment() {
                                 <Ionicons name="close" size={24} color={Colors.text} />
                             </TouchableOpacity>
                         </View>
+                        <View style={styles.searchContainer}>
+                            <Ionicons name="search" size={20} color={Colors.textSecondary} style={styles.searchIcon} />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Buscar por nombre..."
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                autoCapitalize="words"
+                            />
+                        </View>
                         <ScrollView style={styles.patientList}>
-                            {patients.map(patient => (
+                            {filteredPatients.map(patient => (
                                 <TouchableOpacity
                                     key={patient.id}
                                     style={styles.patientItem}
@@ -238,9 +264,67 @@ export default function RegisterPayment() {
                                     <Text style={styles.patientItemDetail}>Cuota: {formatCOPShort(patient.monthlyFee)}</Text>
                                 </TouchableOpacity>
                             ))}
-                            {patients.length === 0 && (
+                            {filteredPatients.length === 0 && (
                                 <Text style={styles.emptyText}>No hay pacientes registrados.</Text>
                             )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+            {/* Procedure Picker Modal */}
+            <Modal visible={showProcedurePicker} animationType="slide" transparent onRequestClose={() => setShowProcedurePicker(false)}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Seleccionar Procedimiento</Text>
+                            <TouchableOpacity onPress={() => setShowProcedurePicker(false)}>
+                                <Ionicons name="close" size={24} color={Colors.text} />
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.searchContainer}>
+                            <Ionicons name="search" size={20} color={Colors.textSecondary} style={styles.searchIcon} />
+                            <TextInput
+                                style={styles.searchInput}
+                                placeholder="Buscar procedimiento..."
+                                value={searchProcedureQuery}
+                                onChangeText={setSearchProcedureQuery}
+                                autoCapitalize="none"
+                            />
+                        </View>
+                        <ScrollView style={styles.patientList} keyboardShouldPersistTaps="handled">
+                            {filteredProcedures.map(proc => (
+                                <TouchableOpacity
+                                    key={proc.id}
+                                    style={styles.patientItem}
+                                    onPress={() => {
+                                        setIsCustomProcedure(false);
+                                        setProcedure(proc.nombre);
+                                        setAmount(proc.precio);
+                                        setShowProcedurePicker(false);
+                                        setSearchProcedureQuery('');
+                                    }}
+                                >
+                                    <Text style={styles.patientItemName}>{proc.nombre}</Text>
+                                    <Text style={styles.patientItemDetail}>{formatCOPShort(parseInt(proc.precio))}</Text>
+                                </TouchableOpacity>
+                            ))}
+                            {filteredProcedures.length === 0 && (
+                                <Text style={styles.emptyText}>No hay resultados.</Text>
+                            )}
+                            <TouchableOpacity
+                                style={styles.patientItem}
+                                onPress={() => {
+                                    setIsCustomProcedure(true);
+                                    if (PROCEDIMIENTOS_PREDEFINIDOS.some(p => p.nombre === procedure)) {
+                                        setProcedure('');
+                                        setAmount('');
+                                    }
+                                    setShowProcedurePicker(false);
+                                    setSearchProcedureQuery('');
+                                }}
+                            >
+                                <Text style={[styles.patientItemName, {color: Colors.primary}]}>+ Agregar Otro (Personalizado)</Text>
+                            </TouchableOpacity>
                         </ScrollView>
                     </View>
                 </View>
@@ -405,5 +489,26 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         color: Colors.textSecondary,
         marginTop: 20,
+        marginBottom: 40,
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'white',
+        marginHorizontal: 16,
+        marginTop: 16,
+        paddingHorizontal: 12,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    searchIcon: {
+        marginRight: 8,
+    },
+    searchInput: {
+        flex: 1,
+        paddingVertical: 12,
+        fontSize: 16,
+        color: Colors.text,
     }
 });

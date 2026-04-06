@@ -12,12 +12,12 @@ import {
 import { LineChart } from "react-native-chart-kit";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../shared/constants/Colors";
-import { useApp } from "../context/AppContext";
+import { useFinanceStore } from "../features/finance/store";
 import { formatCOPShort } from "../shared/utils/formatCOP";
 
 export default function MonthlyReportScreen() {
   const router = useRouter();
-  const { transactions } = useApp();
+  const transactions = useFinanceStore((s) => s.transactions);
   const [monthOffset, setMonthOffset] = useState(0);
 
   const report = useMemo(() => {

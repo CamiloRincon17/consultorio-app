@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -10,13 +10,35 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
+  Modal,
 } from "react-native";
 import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 import { FormInput, PrimaryButton } from "../shared/components";
+import { formatCOPShort } from "../shared/utils/formatCOP";
+const PROCEDIMIENTOS_PREDEFINIDOS = [
+  { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
+  { id: 'Limpieza dental', nombre: 'Limpieza dental', precio: '80000' },
+  { id: 'Extracción dental', nombre: 'Extracción dental', precio: '80000' },
+  { id: 'Extracción de cordal', nombre: 'Extracción de cordal', precio: '150000' },
+  { id: 'Tratamiento de conducto unirradicular', nombre: 'Tratamiento de conducto unirradicular', precio: '310000' },
+  { id: 'Tratamiento de conducto birradicular', nombre: 'Tratamiento de conducto birradicular', precio: '350000' },
+  { id: 'Tratamiento de conducto multirradicular', nombre: 'Tratamiento de conducto multirradicular', precio: '410000' },
+  { id: 'Retratamiento unirradicular', nombre: 'Retratamiento unirradicular', precio: '350000' },
+  { id: 'Retratamiento birradicular', nombre: 'Retratamiento birradicular', precio: '380000' },
+  { id: 'Retratamiento multirradicular', nombre: 'Retratamiento multirradicular', precio: '450000' },
+  { id: 'Montaje de ortodoncia', nombre: 'Montaje de ortodoncia', precio: '300000' },
+  { id: 'Control de ortodoncia', nombre: 'Control de ortodoncia', precio: '60000' },
+  { id: 'Reparación de brackets', nombre: 'Reparación de brackets', precio: '25000' },
+  { id: 'Recorte de encía', nombre: 'Recorte de encía', precio: '70000' },
+  { id: 'Corona metal cerámica', nombre: 'Corona metal cerámica', precio: '600000' },
+  { id: 'Corona libre de metal', nombre: 'Corona libre de metal', precio: '900000' },
+  { id: 'Protesis(Acker)', nombre: 'Protesis(Acker)', precio: '150000' },
+];
 
 export default function AddPatient() {
   const router = useRouter();
@@ -34,6 +56,18 @@ export default function AddPatient() {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [appointmentFrequency, setAppointmentFrequency] = useState<string>("4");
   const [appointmentDay, setAppointmentDay] = useState<string>("");
+  const [procedure, setProcedure] = useState("");
+  const [isCustomProcedure, setIsCustomProcedure] = useState(false);
+
+  const [showProcedurePicker, setShowProcedurePicker] = useState(false);
+  const [searchProcedureQuery, setSearchProcedureQuery] = useState('');
+
+  const filteredProcedures = useMemo(() => {
+      if (!searchProcedureQuery.trim()) return PROCEDIMIENTOS_PREDEFINIDOS;
+      return PROCEDIMIENTOS_PREDEFINIDOS.filter(p => 
+          p.nombre.toLowerCase().includes(searchProcedureQuery.toLowerCase())
+      );
+  }, [searchProcedureQuery]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -53,10 +87,7 @@ export default function AddPatient() {
       return;
     }
 
-    if (!monthlyFee.trim()) {
-      Alert.alert("Error", "La mensualidad es obligatoria");
-      return;
-    }
+
 
     const newPatient = {
       name,
@@ -129,7 +160,7 @@ export default function AddPatient() {
       <ScrollView contentContainerStyle={styles.form}>
         <FormInput
           label="Nombre Completo"
-          placeholder="Ej. Juan Pérez"
+          placeholder="Ej. Uriel Mauricio"
           value={name}
           onChangeText={setName}
           autoFocus
@@ -137,18 +168,10 @@ export default function AddPatient() {
 
         <FormInput
           label="Teléfono"
-          placeholder="Ej. 55 1234 5678"
+          placeholder="Ej. 3120000000"
           keyboardType="phone-pad"
           value={phone}
           onChangeText={setPhone}
-        />
-
-        <FormInput
-          label="Mensualidad ($)"
-          placeholder="0.00"
-          keyboardType="numeric"
-          value={monthlyFee}
-          onChangeText={setMonthlyFee}
         />
 
         {/* Treatment Type */}
@@ -180,7 +203,7 @@ export default function AddPatient() {
                 General
               </Text>
             </TouchableOpacity>
-
+           
             <TouchableOpacity
               style={[
                 styles.treatmentTypeButton,
@@ -210,10 +233,51 @@ export default function AddPatient() {
             </TouchableOpacity>
           </View>
         </View>
-
+        {treatmentType === "general" && (
+          <>
+            
+            <View style={styles.inputGroup}>
+                <Text style={styles.label}>Procedimiento / Motivo</Text>
+                <TouchableOpacity
+                    style={[styles.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+                    onPress={() => setShowProcedurePicker(true)}
+                >
+                    <Text style={{ fontSize: 16, color: (procedure || isCustomProcedure ? Colors.text : Colors.textSecondary) }}>
+                        {isCustomProcedure ? 'Otro (Personalizado)' : (procedure || 'Seleccionar procedimiento...')}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={Colors.textSecondary} />
+                </TouchableOpacity>
+                {isCustomProcedure && (
+                    <TextInput
+                        style={[styles.input, { marginTop: 8 }]}
+                        placeholder="Escribe el procedimiento..."
+                        value={procedure}
+                        onChangeText={setProcedure}
+                    />
+                )}
+            </View>
+            <View style={styles.inputGroup}>
+              <FormInput
+                label="Precio del tratamiento ($)"
+                placeholder="0.00"
+                keyboardType="numeric"
+                value={monthlyFee}
+                onChangeText={setMonthlyFee}
+              />
+            </View>
+          </>
+        )}
         {/* Appointment Frequency for Orthodontics */}
         {treatmentType === "ortodoncia" && (
+
           <>
+          <FormInput
+          label="Mensualidad ($)"
+          placeholder="0.00"
+          keyboardType="numeric"
+          value={monthlyFee}
+          onChangeText={setMonthlyFee}
+        />
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Frecuencia de citas (semanas)</Text>
               <View style={styles.frequencyButtons}>
@@ -355,6 +419,73 @@ export default function AddPatient() {
 
         <PrimaryButton label="Guardar Paciente" onPress={handleSave} />
       </ScrollView>
+
+      {/* Procedure Picker Modal */}
+      <Modal visible={showProcedurePicker} animationType="slide" transparent onRequestClose={() => setShowProcedurePicker(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <View style={{ backgroundColor: '#F2F2F7', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%' }}>
+                  <View style={{
+                      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                      padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.border,
+                      backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+                  }}>
+                      <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Seleccionar Procedimiento</Text>
+                      <TouchableOpacity onPress={() => setShowProcedurePicker(false)}>
+                          <Ionicons name="close" size={24} color={Colors.text} />
+                      </TouchableOpacity>
+                  </View>
+                  <View style={{
+                      flexDirection: 'row', alignItems: 'center', backgroundColor: 'white',
+                      marginHorizontal: 16, marginTop: 16, paddingHorizontal: 12,
+                      borderRadius: 12, borderWidth: 1, borderColor: Colors.border,
+                  }}>
+                      <Ionicons name="search" size={20} color={Colors.textSecondary} style={{ marginRight: 8 }} />
+                      <TextInput
+                          style={{ flex: 1, paddingVertical: 12, fontSize: 16, color: Colors.text }}
+                          placeholder="Buscar procedimiento..."
+                          value={searchProcedureQuery}
+                          onChangeText={setSearchProcedureQuery}
+                          autoCapitalize="none"
+                      />
+                  </View>
+                  <ScrollView style={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+                      {filteredProcedures.map(proc => (
+                          <TouchableOpacity
+                              key={proc.id}
+                              style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 8 }}
+                              onPress={() => {
+                                  setIsCustomProcedure(false);
+                                  setProcedure(proc.nombre);
+                                  setMonthlyFee(proc.precio);
+                                  setShowProcedurePicker(false);
+                                  setSearchProcedureQuery('');
+                              }}
+                          >
+                              <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.text }}>{proc.nombre}</Text>
+                              <Text style={{ fontSize: 14, color: Colors.textSecondary }}>{formatCOPShort(parseInt(proc.precio))}</Text>
+                          </TouchableOpacity>
+                      ))}
+                      {filteredProcedures.length === 0 && (
+                          <Text style={{ textAlign: 'center', color: Colors.textSecondary, marginTop: 20 }}>No hay resultados.</Text>
+                      )}
+                      <TouchableOpacity
+                          style={{ backgroundColor: 'white', padding: 16, borderRadius: 12, marginBottom: 40 }}
+                          onPress={() => {
+                              setIsCustomProcedure(true);
+                              if (PROCEDIMIENTOS_PREDEFINIDOS.some(p => p.nombre === procedure)) {
+                                  setProcedure('');
+                                  setMonthlyFee('');
+                              }
+                              setShowProcedurePicker(false);
+                              setSearchProcedureQuery('');
+                          }}
+                      >
+                          <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.primary }}>+ Agregar Otro (Personalizado)</Text>
+                      </TouchableOpacity>
+                  </ScrollView>
+              </View>
+          </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -501,5 +632,30 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 16,
     fontWeight: "600",
+  },
+  optionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  item: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  itemSelected: {
+    backgroundColor: Colors.primary + '20',
+    borderColor: Colors.primary,
+  },
+  itemText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  itemTextSelected: {
+    color: Colors.primary,
+    fontWeight: '600',
   },
 });

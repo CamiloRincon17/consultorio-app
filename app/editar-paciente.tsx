@@ -17,6 +17,7 @@ export default function EditPatient() {
     const [phone, setPhone] = useState('');
     const [monthlyFee, setMonthlyFee] = useState('');
     const [notes, setNotes] = useState('');
+    const [appointmentDay, setAppointmentDay] = useState('');
 
     // Actualizar el estado cuando cambia el paciente
     useEffect(() => {
@@ -25,6 +26,7 @@ export default function EditPatient() {
             setPhone(patient.phone);
             setMonthlyFee(patient.monthlyFee.toString());
             setNotes(patient.notes || '');
+            setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
         }
     }, [patient]);
 
@@ -36,6 +38,7 @@ export default function EditPatient() {
                 setPhone(patient.phone);
                 setMonthlyFee(patient.monthlyFee.toString());
                 setNotes(patient.notes || '');
+                setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
             }
         }, [patient])
     );
@@ -63,6 +66,7 @@ export default function EditPatient() {
             phone,
             monthlyFee: parseFloat(monthlyFee),
             notes,
+            ...(patient!.treatmentType === 'ortodoncia' && appointmentDay ? { appointmentDay: parseInt(appointmentDay, 10) } : {})
         });
 
         Alert.alert('Éxito', 'Datos del paciente actualizados');
@@ -121,7 +125,23 @@ export default function EditPatient() {
                     placeholder="0.00"
                     keyboardType="numeric"
                 />
-
+                {patient.treatmentType === 'ortodoncia' && (
+                    <FormInput
+                        label="Día del mes para citas"
+                        placeholder="Ej. 5 (para citas el día 5 de cada mes)"
+                        keyboardType="numeric"
+                        value={appointmentDay}
+                        onChangeText={(text) => {
+                            // Only allow numbers 1-31
+                            const num = parseInt(text, 10);
+                            if (text === "" || (num >= 1 && num <= 31)) {
+                                setAppointmentDay(text);
+                            }
+                        }}
+                        maxLength={2}
+                        helperText="💡 Este día se usará para calcular las próximas citas automáticamente"
+                    />
+                )}
                 <FormInput
                     label="Notas / Antecedentes"
                     value={notes}

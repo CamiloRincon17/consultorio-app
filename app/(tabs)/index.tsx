@@ -12,13 +12,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../shared/constants/Colors";
 import { usePatientsStore } from "../../features/patients/store";
 import { useFinanceStore } from "../../features/finance/store";
+import { computeDashboardStats } from "../../features/finance/financeCalculations";
 import { formatCOPShort } from "../../shared/utils/formatCOP";
 
 export default function Dashboard() {
   const router = useRouter();
   const patients = usePatientsStore((s) => s.patients);
-  const getDashboardStats = useFinanceStore((s) => s.getDashboardStats);
-  const stats = useMemo(() => getDashboardStats(), [getDashboardStats]);
+  const transactions = useFinanceStore((s) => s.transactions);
+  const stats = useMemo(() => computeDashboardStats(transactions), [transactions]);
 
   const activePatients = patients.length;
 
