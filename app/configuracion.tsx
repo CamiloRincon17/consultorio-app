@@ -19,10 +19,12 @@ import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { AutoReassignService } from "../services/AutoReassignService";
 import { useAuthStore } from "../features/auth/store";
+import { useDialog } from "../shared/context/DialogContext";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { patients, transactions, importData } = useApp();
+  const dialog = useDialog();
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   
@@ -35,9 +37,10 @@ export default function SettingsScreen() {
 
       // Validar que hay datos para exportar
       if (patients.length === 0 && transactions.length === 0) {
-        Alert.alert(
+        dialog.alert(
           "Sin datos",
           "No hay pacientes ni transacciones para exportar. Agrega algunos datos primero.",
+          "error"
         );
         return;
       }
@@ -86,16 +89,17 @@ export default function SettingsScreen() {
       }
 
       // Dar opción al usuario: descargar o compartir
-      Alert.alert(
-        "✅ Copia creada",
+      dialog.custom(
+        "Copia Creada",
         `Se exportaron ${patients.length} pacientes y ${transactions.length} transacciones.\n\n¿Qué deseas hacer?`,
+        "success",
         [
           {
             text: "Guardar en Descargas",
+            style: "primary",
             onPress: async () => {
               try {
                 if (Platform.OS === "android") {
-                  // Use Storage Access Framework to save to Downloads
                   const permissions =
                     await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
 
@@ -109,28 +113,32 @@ export default function SettingsScreen() {
                         "application/json",
                       );
                     await FileSystem.writeAsStringAsync(uri, fileContent);
-                    Alert.alert(
-                      "✅ Guardado",
+                    dialog.alert(
+                      "Guardado",
                       "Archivo guardado exitosamente en la carpeta seleccionada",
+                      "success"
                     );
                   } else {
-                    Alert.alert(
+                    dialog.alert(
                       "Permiso denegado",
                       "No se pudo acceder al almacenamiento",
+                      "error"
                     );
                   }
                 }
               } catch (downloadError: any) {
                 console.error("Error saving to downloads:", downloadError);
-                Alert.alert(
+                dialog.alert(
                   "Error",
                   `No se pudo guardar: ${downloadError.message}`,
+                  "error"
                 );
               }
             },
           },
           {
             text: "Compartir",
+            style: "primary",
             onPress: async () => {
               const isAvailable = await Sharing.isAvailableAsync();
               if (isAvailable) {
@@ -140,9 +148,10 @@ export default function SettingsScreen() {
                   dialogTitle: "Compartir copia de seguridad",
                 });
               } else {
-                Alert.alert(
+                dialog.alert(
                   "Error",
                   "No se puede compartir en este dispositivo",
+                  "error"
                 );
               }
             },
@@ -150,15 +159,16 @@ export default function SettingsScreen() {
           {
             text: "Cancelar",
             style: "cancel",
+            onPress: () => {},
           },
         ],
       );
     } catch (error: any) {
       console.error("❌ Error al exportar:", error);
-      Alert.alert(
+      dialog.alert(
         "Error al exportar",
         `No se pudo crear la copia de seguridad.\n\nDetalles: ${error.message || "Error desconocido"} \n\nIntenta nuevamente o contacta soporte.`,
-        [{ text: "OK" }],
+        "error"
       );
     } finally {
       setIsExporting(false);
@@ -170,80 +180,71 @@ export default function SettingsScreen() {
       setIsImporting(true);
 
       // Advertir al usuario
-      Alert.alert(
-        "⚠️ Advertencia",
+      dialog.confirm(
+        "Advertencia",
         "Importar un respaldo reemplazará TODOS los datos actuales. ¿Estás seguro?",
-        [
-          {
-            text: "Cancelar",
-            style: "cancel",
-            onPress: () => setIsImporting(false),
-          },
-          {
-            text: "Sí, importar",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                const result = await DocumentPicker.getDocumentAsync({
-                  type: "application/json",
-                  copyToCacheDirectory: true,
-                });
+        async () => {
+          try {
+            const result = await DocumentPicker.getDocumentAsync({
+              type: "application/json",
+              copyToCacheDirectory: true,
+            });
 
-                if (result.canceled) {
-                  console.log("Importación cancelada por el usuario");
-                  return;
-                }
+            if (result.canceled) {
+              console.log("Importación cancelada por el usuario");
+              setIsImporting(false);
+              return;
+            }
 
-                const fileUri = result.assets[0].uri;
-                console.log("📥 Importando desde:", fileUri);
+            const fileUri = result.assets[0].uri;
+            console.log("📥 Importando desde:", fileUri);
 
-                // Leer el contenido del archivo
-                const fileContent = await FileSystem.readAsStringAsync(fileUri);
-                const backupData = JSON.parse(fileContent);
+            // Leer el contenido del archivo
+            const fileContent = await FileSystem.readAsStringAsync(fileUri);
+            const backupData = JSON.parse(fileContent);
 
-                // Validar estructura del backup
-                if (
-                  !backupData.metadata ||
-                  backupData.metadata.appName !== "ConsultorioApp"
-                ) {
-                  throw new Error("Archivo de respaldo inválido");
-                }
+            // Validar estructura del backup
+            if (
+              !backupData.metadata ||
+              backupData.metadata.appName !== "ConsultorioApp"
+            ) {
+              throw new Error("Archivo de respaldo inválido");
+            }
 
-                if (!backupData.patients || !backupData.transactions) {
-                  throw new Error("El archivo no contiene datos válidos");
-                }
+            if (!backupData.patients || !backupData.transactions) {
+              throw new Error("El archivo no contiene datos válidos");
+            }
 
-                console.log("📊 Datos a importar:", {
-                  pacientes: backupData.patients.length,
-                  transacciones: backupData.transactions.length,
-                  fecha: backupData.metadata.date,
-                });
+            console.log("📊 Datos a importar:", {
+              pacientes: backupData.patients.length,
+              transacciones: backupData.transactions.length,
+              fecha: backupData.metadata.date,
+            });
 
-                // Importar los datos
-                await importData(backupData.patients, backupData.transactions);
+            // Importar los datos
+            await importData(backupData.patients, backupData.transactions);
 
-                Alert.alert(
-                  "✅ Importación exitosa",
-                  `Se importaron ${backupData.patients.length} pacientes y ${backupData.transactions.length} transacciones.`,
-                  [{ text: "OK" }],
-                );
-              } catch (importError: any) {
-                console.error("❌ Error al importar:", importError);
-                Alert.alert(
-                  "Error al importar",
-                  `No se pudo importar el respaldo.\n\nDetalles: ${importError.message || "Error desconocido"} `,
-                  [{ text: "OK" }],
-                );
-              }
-            },
-          },
-        ],
-        { cancelable: true, onDismiss: () => setIsImporting(false) },
+            dialog.alert(
+              "Importación exitosa",
+              `Se importaron ${backupData.patients.length} pacientes y ${backupData.transactions.length} transacciones.`,
+              "success"
+            );
+          } catch (importError: any) {
+            console.error("❌ Error al importar:", importError);
+            dialog.alert(
+              "Error al importar",
+              `No se pudo importar el respaldo.\n\nDetalles: ${importError.message || "Error desconocido"} `,
+              "error"
+            );
+          } finally {
+            setIsImporting(false);
+          }
+        },
+        "danger"
       );
     } catch (error: any) {
       console.error("❌ Error:", error);
-      Alert.alert("Error", error.message || "Error al seleccionar archivo");
-    } finally {
+      dialog.alert("Error", error.message || "Error al seleccionar archivo", "error");
       setIsImporting(false);
     }
   };
@@ -271,30 +272,25 @@ export default function SettingsScreen() {
   };
 
   const handleManualReassign = async () => {
-    Alert.alert(
+    dialog.confirm(
       "¿Reasignar Citas?",
       "Esto reasignará las citas de todos los pacientes de ortodoncia según su frecuencia configurada. ¿Continuar?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Sí, Reasignar",
-          onPress: async () => {
-            try {
-              setIsReassigning(true);
-              const result = await AutoReassignService.manualReassignAll(
-                patients,
-                updatePatient,
-              );
-              await loadLastAutoReassignDate();
-              Alert.alert("✅ Completado", result.message);
-            } catch (error) {
-              Alert.alert("Error", "No se pudo completar la reasignación");
-            } finally {
-              setIsReassigning(false);
-            }
-          },
-        },
-      ],
+      async () => {
+        try {
+          setIsReassigning(true);
+          const result = await AutoReassignService.manualReassignAll(
+            patients,
+            updatePatient,
+          );
+          await loadLastAutoReassignDate();
+          dialog.alert("Completado", result.message, "success");
+        } catch (error) {
+          dialog.alert("Error", "No se pudo completar la reasignación", "error");
+        } finally {
+          setIsReassigning(false);
+        }
+      },
+      "primary"
     );
   };
 
@@ -334,25 +330,28 @@ export default function SettingsScreen() {
       if (enabled) {
         // Reschedule all notifications
         await NotificationService.rescheduleAllNotifications(patients);
-        Alert.alert(
-          "✅ Notificaciones activadas",
+        dialog.alert(
+          "Notificaciones activadas",
           "Se han programado las notificaciones pendientes",
+          "success"
         );
       } else {
         // Cancel all notifications
         await NotificationService.cancelAllNotifications();
-        Alert.alert(
+        dialog.alert(
           "Notificaciones desactivadas",
           "Se cancelaron todas las notificaciones",
+          "success"
         );
       }
 
       await loadPendingNotifications();
     } catch (error) {
       console.error("Error toggling notifications:", error);
-      Alert.alert(
+      dialog.alert(
         "Error",
         "No se pudo cambiar la configuración de notificaciones",
+        "error"
       );
     }
   };
@@ -371,12 +370,13 @@ export default function SettingsScreen() {
         await loadPendingNotifications();
       }
 
-      Alert.alert(
-        "✅ Guardado",
+      dialog.alert(
+        "Guardado",
         `Se notificará ${days} día${days > 1 ? "s" : ""} antes`,
+        "success"
       );
     } catch (error) {
-      Alert.alert("Error", "No se pudo guardar la configuración");
+      dialog.alert("Error", "No se pudo guardar la configuración", "error");
     }
   };
 
@@ -388,7 +388,7 @@ export default function SettingsScreen() {
         await NotificationService.getAllScheduledNotifications();
 
       if (scheduled.length === 0) {
-        Alert.alert("Sin notificaciones", "No hay notificaciones programadas");
+        dialog.alert("Sin notificaciones", "No hay notificaciones programadas", "info");
         return;
       }
 
@@ -401,24 +401,25 @@ export default function SettingsScreen() {
         })
         .join("\n\n");
 
-      Alert.alert(`📋 ${scheduled.length} Notificaciones Programadas`, list, [
-        { text: "OK" },
+      dialog.custom(`Notificaciones Programadas (${scheduled.length})`, list, "info", [
         {
           text: "Cancelar todas",
-          style: "destructive",
+          style: "danger",
           onPress: async () => {
             await NotificationService.cancelAllNotifications();
             await loadPendingNotifications();
-            Alert.alert(
+            dialog.alert(
               "Canceladas",
               "Todas las notificaciones fueron canceladas",
+              "success"
             );
           },
         },
+        { text: "OK", onPress: () => {} },
       ]);
     } catch (error) {
       console.error("Error viewing notifications:", error);
-      Alert.alert("Error", "No se pudieron cargar las notificaciones");
+      dialog.alert("Error", "No se pudieron cargar las notificaciones", "error");
     }
   };
 
@@ -523,18 +524,17 @@ export default function SettingsScreen() {
           style={styles.item}
           onPress={() => {
             if (hasPinSet) {
-              Alert.alert(
+              dialog.confirm(
                 "Quitar PIN",
                 "¿Estás seguro de que deseas eliminar el PIN de acceso?",
-                [
-                  { text: "Cancelar", style: "cancel" },
-                  { text: "Sí, quitar", style: "destructive", onPress: removePin },
-                ]
+                removePin,
+                "danger"
               );
             } else {
-              Alert.alert(
+              dialog.alert(
                 "Configurar PIN",
-                "Cierra la aplicación por completo y vuelve a abrirla para configurar un PIN de seguridad en la pantalla inicial."
+                "Cierra la aplicación por completo y vuelve a abrirla para configurar un PIN de seguridad en la pantalla inicial.",
+                "info"
               );
             }
           }}

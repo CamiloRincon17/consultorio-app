@@ -12,26 +12,86 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../shared/constants/Colors";
-import { Patient } from "../../features/patients/types";
+import { isSameLocalDay, toLocalDateString, findVisitForAppointment } from "../../shared/utils/dateUtils";
+import { formatCOPShort } from "../../shared/utils/formatCOP";
+import { Patient, Visit } from "../../features/patients/types";
 import { usePatientsStore } from "../../features/patients/store";
+import { useDialog } from "../../shared/context/DialogContext";
 
-// Helper to format date
-const formatDateKey = (date: Date) => {
-    return date.toISOString().split("T")[0];
-};
+// Helper to format date key using LOCAL time (no UTC drift)
+const formatDateKey = (date: Date): string => toLocalDateString(date);
 
 export default function AgendaScreen() {
     const router = useRouter();
+    const dialog = useDialog();
     const patients = usePatientsStore((s) => s.patients);
     const [selectedDateFilter, setSelectedDateFilter] = useState<string>("TODAY");
 
     // Get appointments and group by date
     const agendaData = useMemo(() => {
-        const upcoming: (Patient & { controlDateObj: Date })[] = [];
+        const upcoming: (Patient & { 
+            controlDateObj: Date; 
+            isVisit?: boolean; 
+            visitDetails?: string; 
+            realId: string; 
+            hasAttended?: boolean;
+            extraVisits?: Visit[];
+        })[] = [];
 
         patients.forEach((p) => {
             if (p.nextControlDate) {
-                upcoming.push({ ...p, controlDateObj: new Date(p.nextControlDate) });
+                const controlLocal = toLocalDateString(p.nextControlDate);
+
+                // Use the same 7-day window logic as findVisitForAppointment to find ALL visits near the appointment
+                const controlDateObj = new Date(controlLocal + 'T00:00:00');
+                const windowStart = new Date(controlDateObj);
+                windowStart.setDate(windowStart.getDate() - 7);
+                const windowStartStr = toLocalDateString(windowStart);
+
+                const windowVisits = (p.visits || []).filter(v => {
+                    const vDate = toLocalDateString(v.date);
+                    return vDate >= windowStartStr && vDate <= controlLocal;
+                });
+
+                // Separate controls from extra procedures
+                const controlVisits = windowVisits.filter(v => 
+                    /control|mensual|mensualidad/i.test(v.reason || '') ||
+                    /control|mensual|mensualidad/i.test(v.treatment || '')
+                );
+                
+                const extraVisits = windowVisits.filter(v => 
+                    !(/control|mensual|mensualidad/i.test(v.reason || '') ||
+                      /control|mensual|mensualidad/i.test(v.treatment || ''))
+                );
+
+                const matchingVisit = controlVisits.length > 0 ? controlVisits.reduce((latest, v) =>
+                    toLocalDateString(v.date) >= toLocalDateString(latest.date) ? v : latest
+                ) : undefined;
+
+                const isAdvance = matchingVisit && !isSameLocalDay(matchingVisit.date, controlLocal);
+
+                upcoming.push({ 
+                    ...p, 
+                    controlDateObj: new Date(p.nextControlDate), 
+                    realId: p.id,
+                    hasAttended: !!matchingVisit,
+                    visitDetails: matchingVisit
+                        ? `${isAdvance ? '(Ant.) ' : ''}${matchingVisit.reason || matchingVisit.treatment || 'Visita registrada'}`
+                        : undefined,
+                    extraVisits: extraVisits
+                });
+            }
+            if (p.visits && p.visits.length > 0) {
+                p.visits.forEach(v => {
+                    upcoming.push({
+                        ...p,
+                        id: `${p.id}-visit-${v.id}`, // Unique ID for key mapping
+                        realId: p.id,
+                        controlDateObj: new Date(v.date),
+                        isVisit: true,
+                        visitDetails: v.reason || v.treatment || "Visita",
+                    });
+                });
             }
         });
 
@@ -50,6 +110,16 @@ export default function AgendaScreen() {
                 p.controlDateObj.getMonth(),
                 p.controlDateObj.getDate()
             );
+
+            if (selectedDateFilter === "LAST_30") {
+                const thirtyDaysAgo = new Date(today);
+                thirtyDaysAgo.setDate(today.getDate() - 30);
+                return date >= thirtyDaysAgo && date < today;
+            }
+
+            if (p.isVisit) {
+                return false; // Ocultar visitas del historial en vistas futuras
+            }
 
             if (selectedDateFilter === "TODAY") {
                 return date.getTime() === today.getTime();
@@ -85,35 +155,61 @@ export default function AgendaScreen() {
             hour12: true,
         });
 
+        const isFinished = patient.isVisit || patient.hasAttended;
+
         return (
             <TouchableOpacity
                 style={styles.card}
-                onPress={() =>
-                    router.push({
-                        pathname: "/modificar-control",
-                        params: { id: patient.id },
-                    })
-                }
+                onPress={() => {
+                    if (isFinished) {
+                        router.push({
+                            pathname: "/historial-visitas",
+                            params: { id: patient.realId },
+                        });
+                    } else {
+                        router.push({
+                            pathname: "/registrar-pago",
+                            params: { id: patient.realId },
+                        });
+                    }
+                }}
                 activeOpacity={0.7}
             >
                 <View style={styles.timeColumn}>
                     <Text style={styles.timeText}>{timeString}</Text>
-                    <View style={styles.timelineDot} />
-                    <View style={styles.timelineLine} />
+                    <View style={[styles.timelineDot, isFinished && { backgroundColor: Colors.success }]} />
+                    <View style={[styles.timelineLine, isFinished && { backgroundColor: Colors.success + "30" }]} />
+                
                 </View>
                 <View style={styles.contentColumn}>
                     <Text style={styles.patientName}>{patient.name}</Text>
-                    <Text style={styles.treatmentText}>
-                        <Ionicons name="medical" size={12} color={Colors.textSecondary} />{" "}
-                        {patient.treatmentType === "ortodoncia" ? "Ortodoncia" : "General"}
-                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 4 }}>
+                        <Text style={styles.treatmentText}>
+                            <Ionicons name={isFinished ? "checkmark-circle" : "medical"} size={12} color={Colors.textSecondary} />{" "}
+                            {isFinished 
+                                ? `Asistió: ${patient.visitDetails || 'Visita registrada'}` 
+                                : `${patient.treatmentType === "ortodoncia" ? "Ortodoncia (Pendiente)" : "General (Pendiente)"}`}
+                        </Text>
+                        
+                        {/* Render extra procedures at the same height */}
+                        {patient.extraVisits && patient.extraVisits.map(ev => (
+                            <View key={ev.id} style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                                <Ionicons name="checkmark-circle" size={12} color={Colors.textSecondary} />
+                                <Text style={[styles.treatmentText, { color: Colors.textSecondary, marginLeft: 4 }]}>
+                                 {ev.reason || ev.treatment || 'Procedimiento'}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={Colors.border} />
             </TouchableOpacity>
         );
     };
 
-    const sortedDates = Object.keys(groupedAgenda).sort();
+    const sortedDates = Object.keys(groupedAgenda).sort((a, b) => {
+        return selectedDateFilter === "LAST_30" ? b.localeCompare(a) : a.localeCompare(b);
+    });
 
     const buildAgendaMessage = useCallback(() => {
         if (sortedDates.length === 0) {
@@ -145,8 +241,13 @@ export default function AgendaScreen() {
                     minute: "2-digit",
                     hour12: true,
                 });
-                const type = p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
-                message += `  🕐 ${timeStr} — *${p.name}* (${type})\n`;
+                let typeStr = "";
+                if (p.isVisit) {
+                    typeStr = `✅ Asistió (${p.visitDetails})`;
+                } else {
+                    typeStr = p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
+                }
+                message += `  🕐 ${timeStr} — *${p.name}* (${typeStr})\n`;
             });
 
             message += `\n`;
@@ -160,7 +261,7 @@ export default function AgendaScreen() {
         const message = buildAgendaMessage();
 
         if (!message) {
-            Alert.alert("Sin citas", "No hay citas para compartir con el filtro actual.");
+            dialog.alert("Sin citas", "No hay citas para compartir con el filtro actual.", "info");
             return;
         }
 
@@ -171,13 +272,14 @@ export default function AgendaScreen() {
             if (supported) {
                 await Linking.openURL(url);
             } else {
-                Alert.alert(
+                dialog.alert(
                     "WhatsApp no disponible",
-                    "No se encontró WhatsApp instalado en el dispositivo."
+                    "No se encontró WhatsApp instalado en el dispositivo.",
+                    "error"
                 );
             }
         } catch {
-            Alert.alert("Error", "No se pudo abrir WhatsApp.");
+            dialog.alert("Error", "No se pudo abrir WhatsApp.", "error");
         }
     }, [buildAgendaMessage]);
 
@@ -259,6 +361,22 @@ export default function AgendaScreen() {
                             ]}
                         >
                             Todas
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[
+                            styles.filterButton,
+                            selectedDateFilter === "LAST_30" && styles.filterButtonActive,
+                        ]}
+                        onPress={() => setSelectedDateFilter("LAST_30")}
+                    >
+                        <Text
+                            style={[
+                                styles.filterText,
+                                selectedDateFilter === "LAST_30" && styles.filterTextActive,
+                            ]}
+                        >
+                            Historial 30 días
                         </Text>
                     </TouchableOpacity>
                 </ScrollView>

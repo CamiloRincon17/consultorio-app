@@ -5,7 +5,7 @@ import { useFinanceStore } from "../features/finance/store";
 import { runMigrationV1 } from "../services/storage/migrations/v1_transactionsToVisits";
 import { AutoReassignService } from "../services/AutoReassignService";
 import { PinLockScreen } from "../features/auth/components/PinLockScreen";
-import type { Patient, Visit } from "../features/patients/types";
+import type { Patient } from "../features/patients/types";
 import type { Transaction } from "../features/finance/types";
 
 // Re-exports for compatibility

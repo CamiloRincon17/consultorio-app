@@ -14,6 +14,7 @@ import {
 import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { FormInput, PrimaryButton } from "../shared/components";
+import { useDialog } from "../shared/context/DialogContext";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -21,6 +22,7 @@ export default function EditTransaction() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { transactions, updateTransaction, deleteTransaction } = useApp();
+  const dialog = useDialog();
 
   // Convertir id a string si es un array (expo-router a veces hace esto)
   const transactionId = Array.isArray(id) ? id[0] : id;
@@ -37,7 +39,7 @@ export default function EditTransaction() {
   // Actualizar el estado cuando cambia la transacción
   useEffect(() => {
     if (transaction) {
-      setAmount(transaction.amount.toString());
+      setAmount((transaction.amount ?? 0).toString());
       setDescription(transaction.description);
       setProcedure(transaction.procedure || "");
       if (transaction.date) {
@@ -50,7 +52,7 @@ export default function EditTransaction() {
   useFocusEffect(
     useCallback(() => {
       if (transaction) {
-        setAmount(transaction.amount.toString());
+        setAmount((transaction.amount ?? 0).toString());
         setDescription(transaction.description);
         setProcedure(transaction.procedure || "");
         if (transaction.date) {
@@ -62,36 +64,29 @@ export default function EditTransaction() {
 
   const handleSave = () => {
     if (!amount.trim()) {
-      Alert.alert("Error", "El monto es obligatorio");
+      dialog.alert("Error", "El monto es obligatorio", "error");
       return;
     }
 
     updateTransaction(transaction!.id, {
-      amount: parseFloat(amount),
+      amount: parseFloat(amount) || 0,
       description,
       procedure,
       date: date.toISOString(),
     });
 
-    Alert.alert("Éxito", "Transacción actualizada");
-    router.back();
+    dialog.alert("Éxito", "Transacción actualizada", "success", () => router.back());
   };
 
   const handleDelete = () => {
-    Alert.alert(
+    dialog.confirm(
       "Eliminar Transacción",
       "¿Estás seguro de eliminar este registro?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Eliminar",
-          style: "destructive",
-          onPress: () => {
-            deleteTransaction(transaction!.id);
-            router.back();
-          },
-        },
-      ],
+      () => {
+        deleteTransaction(transaction!.id);
+        router.back();
+      },
+      "danger"
     );
   };
 

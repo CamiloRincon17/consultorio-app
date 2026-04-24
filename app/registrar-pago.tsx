@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, Switch, TextInput, Modal, Alert } from 'react-native';
 import { Colors } from '../shared/constants/Colors';
-import { FormInput, PrimaryButton } from '../shared/components';
+import { FormInput, PrimaryButton, ConfirmModal } from '../shared/components';
 import { Patient, useApp } from '../context/AppContext';
 import { formatCOPShort } from '../shared/utils/formatCOP';
+import { toLocalDateString } from '../shared/utils/dateUtils';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useDialog } from '../shared/context/DialogContext';
 
 const PROCEDIMIENTOS_PREDEFINIDOS = [
     { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
@@ -30,7 +32,10 @@ const PROCEDIMIENTOS_PREDEFINIDOS = [
 
 export default function RegisterPayment() {
     const router = useRouter();
+    const { id } = useLocalSearchParams();
+    const patientParamId = Array.isArray(id) ? id[0] : id;
     const { patients, addTransaction, addVisit } = useApp();
+    const dialog = useDialog();
 
     const [isRegistered, setIsRegistered] = useState(true);
     const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
@@ -49,6 +54,8 @@ export default function RegisterPayment() {
 
     const [showProcedurePicker, setShowProcedurePicker] = useState(false);
     const [searchProcedureQuery, setSearchProcedureQuery] = useState('');
+
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
 
     const selectedPatient = useMemo(() =>
         patients.find(p => p.id === selectedPatientId),
@@ -69,37 +76,47 @@ export default function RegisterPayment() {
         );
     }, [searchProcedureQuery]);
 
-    const handleSelectPatient = (patient: Patient) => {
+    const handleSelectPatient = useCallback((patient: Patient) => {
+        setIsRegistered(true);
         setSelectedPatientId(patient.id);
-        setAmount(patient.monthlyFee.toString());
+        setAmount((patient.monthlyFee ?? 0).toString());
         setProcedure('Control Mensual');
         setIsCustomProcedure(false);
         setShowPatientPicker(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        if (patientParamId && !selectedPatientId && patients.length > 0) {
+            const patient = patients.find(p => p.id === patientParamId);
+            if (patient) {
+                handleSelectPatient(patient);
+            }
+        }
+    }, [patientParamId, patients, selectedPatientId, handleSelectPatient]);
 
     const handleSave = () => {
         const finalPatientName = isRegistered ? selectedPatient?.name : anonymousName;
 
         if (isRegistered && !selectedPatientId) {
-            Alert.alert('Error', 'Debes seleccionar un paciente registrado');
+            dialog.alert('Error', 'Debes seleccionar un paciente registrado', 'error');
             return;
         }
         if (!isRegistered && !anonymousName.trim()) {
-            Alert.alert('Error', 'Debes ingresar el nombre del paciente');
+            dialog.alert('Error', 'Debes ingresar el nombre del paciente', 'error');
             return;
         }
         if (!amount.trim()) {
-            Alert.alert('Error', 'El monto es obligatorio');
+            dialog.alert('Error', 'El monto es obligatorio', 'error');
             return;
         }
 
-        const dateString = date.toISOString();
-        const numericAmount = parseFloat(amount);
+        const localDateStr = toLocalDateString(date); // YYYY-MM-DD in LOCAL time (no UTC drift)
+        const numericAmount = parseFloat(amount) || 0;
 
         if (isRegistered && selectedPatientId) {
             // Para pacientes registrados, addVisit creará automáticamente la transacción vinculada
             addVisit(selectedPatientId, {
-                date: dateString.split('T')[0], // YYYY-MM-DD
+                date: localDateStr,
                 reason: procedure || 'Consulta General',
                 treatment: description || 'Pago registrado',
                 cost: numericAmount,
@@ -115,15 +132,11 @@ export default function RegisterPayment() {
                 patientName: finalPatientName,
                 patientId: undefined,
                 procedure: procedure || 'Consulta General',
-                date: dateString,
+                date: localDateStr,
             });
         }
 
-        Alert.alert(
-            "✅ Pago Registrado",
-            "El pago se ha registrado exitosamente.",
-            [{ text: "OK", onPress: () => router.back() }]
-        );
+        setShowSuccessModal(true);
     };
 
     return (
@@ -253,7 +266,7 @@ export default function RegisterPayment() {
                                 autoCapitalize="words"
                             />
                         </View>
-                        <ScrollView style={styles.patientList}>
+                        <ScrollView style={styles.patientList} contentContainerStyle={{ paddingBottom: 60 }}>
                             {filteredPatients.map(patient => (
                                 <TouchableOpacity
                                     key={patient.id}
@@ -261,7 +274,7 @@ export default function RegisterPayment() {
                                     onPress={() => handleSelectPatient(patient)}
                                 >
                                     <Text style={styles.patientItemName}>{patient.name}</Text>
-                                    <Text style={styles.patientItemDetail}>Cuota: {formatCOPShort(patient.monthlyFee)}</Text>
+                                    <Text style={styles.patientItemDetail}>Cuota: {formatCOPShort(patient.monthlyFee ?? 0)}</Text>
                                 </TouchableOpacity>
                             ))}
                             {filteredPatients.length === 0 && (
@@ -291,7 +304,7 @@ export default function RegisterPayment() {
                                 autoCapitalize="none"
                             />
                         </View>
-                        <ScrollView style={styles.patientList} keyboardShouldPersistTaps="handled">
+                        <ScrollView style={styles.patientList} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
                             {filteredProcedures.map(proc => (
                                 <TouchableOpacity
                                     key={proc.id}
@@ -329,6 +342,23 @@ export default function RegisterPayment() {
                     </View>
                 </View>
             </Modal>
+            
+            {/* Success Modal */}
+            <ConfirmModal
+                visible={showSuccessModal}
+                title="Pago Registrado"
+                message="El pago se ha registrado exitosamente en el sistema."
+                confirmText="Aceptar"
+                onConfirm={() => {
+                    setShowSuccessModal(false);
+                    router.back();
+                }}
+                onCancel={() => {}}
+                hideCancel={true}
+                icon="checkmark-circle"
+                iconColor={Colors.success}
+                confirmStyle="success"
+            />
         </KeyboardAvoidingView>
     );
 }

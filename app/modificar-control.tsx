@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
     Alert,
     Platform,
@@ -14,17 +14,19 @@ import {
 import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
+import { useDialog } from "../shared/context/DialogContext";
 
 export default function ModifyControl() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { patients, updatePatient } = useApp();
+  const dialog = useDialog();
 
   const patient = patients.find((p) => p.id === id);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [pickerMode, setPickerMode] = useState<"date" | "time">("date");
+
   const [notificationScheduled, setNotificationScheduled] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState({
     daysInAdvance: 1,
@@ -35,6 +37,27 @@ export default function ModifyControl() {
     "general",
   );
   const [appointmentFrequency, setAppointmentFrequency] = useState<string>("4");
+
+  const checkNotificationStatus = useCallback(async () => {
+    const scheduled = await NotificationService.getAllScheduledNotifications();
+    const hasNotification = scheduled.some(
+      (n) => n.identifier === `appointment_${patient?.id}`,
+    );
+    setNotificationScheduled(hasNotification);
+  }, [patient?.id]);
+
+  const loadNotificationSettings = useCallback(async () => {
+    try {
+      const settings = await NotificationService.getSettings();
+      setNotificationSettings({
+        daysInAdvance: settings.daysInAdvance,
+        notificationHour: settings.notificationHour,
+        notificationMinute: settings.notificationMinute,
+      });
+    } catch (error) {
+      console.error("Error loading notification settings:", error);
+    }
+  }, []);
 
   useEffect(() => {
     if (patient) {
@@ -55,28 +78,7 @@ export default function ModifyControl() {
       checkNotificationStatus();
       loadNotificationSettings();
     }
-  }, [patient]);
-
-  const loadNotificationSettings = async () => {
-    try {
-      const settings = await NotificationService.getSettings();
-      setNotificationSettings({
-        daysInAdvance: settings.daysInAdvance,
-        notificationHour: settings.notificationHour,
-        notificationMinute: settings.notificationMinute,
-      });
-    } catch (error) {
-      console.error("Error loading notification settings:", error);
-    }
-  };
-
-  const checkNotificationStatus = async () => {
-    const scheduled = await NotificationService.getAllScheduledNotifications();
-    const hasNotification = scheduled.some(
-      (n) => n.identifier === `appointment_${patient?.id}`,
-    );
-    setNotificationScheduled(hasNotification);
-  };
+  }, [patient, checkNotificationStatus, loadNotificationSettings]);
 
   const handleDateChange = (event: any, date?: Date) => {
     // On Android, dismiss the picker first
@@ -102,10 +104,10 @@ export default function ModifyControl() {
 
     // Validate date is in the future
     if (selectedDate <= new Date()) {
-      Alert.alert(
+      dialog.alert(
         "Fecha inválida",
         "La fecha de la cita debe ser en el futuro.",
-        [{ text: "OK" }],
+        "error"
       );
       return;
     }
@@ -125,16 +127,18 @@ export default function ModifyControl() {
     );
 
     if (success) {
-      Alert.alert(
-        "✅ Guardado",
+      dialog.alert(
+        "Guardado",
         "Fecha actualizada y notificación programada correctamente.",
-        [{ text: "OK", onPress: () => router.back() }],
+        "success",
+        () => router.back()
       );
     } else {
-      Alert.alert(
-        "⚠️ Parcialmente guardado",
-        "La fecha se guardó pero no se pudo programar la notificación. Verifica los permisos de notificaciones en Configuración.",
-        [{ text: "OK", onPress: () => router.back() }],
+      dialog.alert(
+        "Parcialmente guardado",
+        "La fecha se guardó pero no se pudo programar la notificación. Verifica permisos.",
+        "error",
+        () => router.back()
       );
     }
   };
@@ -142,21 +146,15 @@ export default function ModifyControl() {
   const handleCancelNotification = async () => {
     if (!patient) return;
 
-    Alert.alert(
+    dialog.confirm(
       "¿Cancelar notificación?",
       "Se eliminará la notificación programada pero la fecha de cita se mantendrá.",
-      [
-        { text: "No", style: "cancel" },
-        {
-          text: "Sí, cancelar",
-          style: "destructive",
-          onPress: async () => {
-            await NotificationService.cancelAppointmentNotification(patient.id);
-            setNotificationScheduled(false);
-            Alert.alert("Notificación cancelada");
-          },
-        },
-      ],
+      async () => {
+        await NotificationService.cancelAppointmentNotification(patient.id);
+        setNotificationScheduled(false);
+        dialog.alert("Cancelada", "Notificación cancelada", "success");
+      },
+      "danger"
     );
   };
 
@@ -206,7 +204,6 @@ export default function ModifyControl() {
         <TouchableOpacity
           style={styles.dateButton}
           onPress={() => {
-            setPickerMode("date");
             setShowDatePicker(true);
           }}
         >
@@ -234,7 +231,6 @@ export default function ModifyControl() {
         <TouchableOpacity
           style={styles.dateButton}
           onPress={() => {
-            setPickerMode("time");
             setShowTimePicker(true);
           }}
         >
@@ -425,23 +421,17 @@ export default function ModifyControl() {
         <TouchableOpacity
           style={styles.clearDateButton}
           onPress={() => {
-            Alert.alert(
+            dialog.confirm(
               "Quitar Cita",
               '¿Estás seguro de quitar la cita actual? El paciente quedará "Sin Cita Agendada".',
-              [
-                { text: "Cancelar", style: "cancel" },
-                {
-                  text: "Sí, quitar",
-                  style: "destructive",
-                  onPress: async () => {
-                    updatePatient(patient.id, { nextControlDate: undefined });
-                    await NotificationService.cancelAppointmentNotification(
-                      patient.id,
-                    );
-                    router.back();
-                  },
-                },
-              ],
+              async () => {
+                updatePatient(patient.id, { nextControlDate: undefined });
+                await NotificationService.cancelAppointmentNotification(
+                  patient.id,
+                );
+                router.back();
+              },
+              "danger"
             );
           }}
         >

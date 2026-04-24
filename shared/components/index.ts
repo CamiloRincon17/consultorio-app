@@ -6,5 +6,6 @@
 export { ScreenHeader } from './ScreenHeader';
 export { EmptyState } from './EmptyState';
 export { StatCard } from './StatCard';
+export { ConfirmModal } from './ConfirmModal';
 export { FormInput } from './FormInput';
 export { PrimaryButton } from './PrimaryButton';

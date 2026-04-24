@@ -16,10 +16,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../shared/constants/Colors";
 import { Patient, useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
+import { useDialog } from "../shared/context/DialogContext";
 
 export default function ReasignarOrtodoncia() {
   const router = useRouter();
   const { patients, updatePatient } = useApp();
+  const dialog = useDialog();
   const [selectedPatients, setSelectedPatients] = useState<Set<string>>(
     new Set(),
   );
@@ -62,89 +64,82 @@ export default function ReasignarOrtodoncia() {
 
   const handleBatchReschedule = async () => {
     if (selectedPatients.size === 0) {
-      Alert.alert("Error", "Selecciona al menos un paciente");
+      dialog.alert("Error", "Selecciona al menos un paciente", "error");
       return;
     }
 
     const count = selectedPatients.size;
     const frequency = parseInt(frequencyWeeks, 10);
 
-    Alert.alert(
+    dialog.confirm(
       "Confirmar Reasignación",
       `¿Reasignar ${count} cita(s) con frecuencia de ${frequency} semanas?`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Confirmar",
-          onPress: async () => {
-            let successCount = 0;
+      async () => {
+        let successCount = 0;
 
-            for (const patientId of Array.from(selectedPatients)) {
-              const patient = patients.find((p) => p.id === patientId);
-              if (!patient) continue;
+        for (const patientId of Array.from(selectedPatients)) {
+          const patient = patients.find((p) => p.id === patientId);
+          if (!patient) continue;
 
-              // Calculate next appointment based on current date + frequency
-              const nextAppointment = new Date(newDate);
+          // Calculate next appointment based on current date + frequency
+          const nextAppointment = new Date(newDate);
 
-              // Update patient
-              updatePatient(patientId, {
-                nextControlDate: nextAppointment.toISOString(),
-                appointmentFrequency: frequency,
-                lastAppointmentDate: new Date().toISOString(),
-              });
+          // Update patient
+          updatePatient(patientId, {
+            nextControlDate: nextAppointment.toISOString(),
+            appointmentFrequency: frequency,
+            lastAppointmentDate: new Date().toISOString(),
+          });
 
-              // Schedule notification
-              await NotificationService.scheduleAppointmentNotification(
-                patientId,
-                patient.name,
-                nextAppointment,
-              );
+          // Schedule notification
+          await NotificationService.scheduleAppointmentNotification(
+            patientId,
+            patient.name,
+            nextAppointment,
+          );
 
-              successCount++;
-            }
+          successCount++;
+        }
 
-            Alert.alert(
-              "✅ Completado",
-              `Se reasignaron ${successCount} citas correctamente`,
-              [{ text: "OK", onPress: () => router.back() }],
-            );
-          },
-        },
-      ],
+        dialog.alert(
+          "Completado",
+          `Se reasignaron ${successCount} citas correctamente`,
+          "success",
+          () => router.back()
+        );
+      },
+      "primary"
     );
   };
 
   const handleAutoReschedule = async (patient: Patient) => {
     if (!patient.appointmentFrequency) {
-      Alert.alert(
+      dialog.custom(
         "Frecuencia no configurada",
         "Este paciente no tiene una frecuencia de citas configurada. ¿Deseas configurarla ahora?",
+        "info",
         [
-          { text: "Cancelar", style: "cancel" },
           {
-            text: "Configurar",
-            onPress: () => {
-              Alert.alert(
-                "Configurar Frecuencia",
-                "¿Cada cuántas semanas debe venir este paciente?",
-                [
-                  {
-                    text: "Cada 2 semanas",
-                    onPress: () => rescheduleWithFrequency(patient, 2),
-                  },
-                  {
-                    text: "Cada 4 semanas",
-                    onPress: () => rescheduleWithFrequency(patient, 4),
-                  },
-                  {
-                    text: "Cada 6 semanas",
-                    onPress: () => rescheduleWithFrequency(patient, 6),
-                  },
-                ],
-              );
-            },
+            text: "Cada 2 sem",
+            style: "primary",
+            onPress: () => rescheduleWithFrequency(patient, 2),
           },
-        ],
+          {
+            text: "Cada 4 sem",
+            style: "primary",
+            onPress: () => rescheduleWithFrequency(patient, 4),
+          },
+          {
+            text: "Cada 6 sem",
+            style: "primary",
+            onPress: () => rescheduleWithFrequency(patient, 6),
+          },
+          {
+            text: "Cancelar",
+            style: "cancel",
+            onPress: () => {},
+          },
+        ]
       );
       return;
     }
@@ -172,13 +167,14 @@ export default function ReasignarOrtodoncia() {
       nextAppointment,
     );
 
-    Alert.alert(
-      "✅ Cita Reasignada",
+    dialog.alert(
+      "Cita Reasignada",
       `Nueva cita: ${nextAppointment.toLocaleDateString("es-ES", {
         weekday: "long",
         day: "numeric",
         month: "long",
       })}`,
+      "success"
     );
   };
 

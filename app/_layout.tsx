@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { useEffect } from "react";
 import { AppProvider, useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
+import { DialogProvider } from "../shared/context/DialogContext";
 
 function RootLayoutNav() {
   const { patients } = useApp();
@@ -137,7 +138,9 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AppProvider>
-      <RootLayoutNav />
+      <DialogProvider>
+        <RootLayoutNav />
+      </DialogProvider>
     </AppProvider>
   );
 }

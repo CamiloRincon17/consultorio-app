@@ -20,6 +20,7 @@ import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 import { FormInput, PrimaryButton } from "../shared/components";
 import { formatCOPShort } from "../shared/utils/formatCOP";
+import { useDialog } from "../shared/context/DialogContext";
 const PROCEDIMIENTOS_PREDEFINIDOS = [
   { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
   { id: 'Limpieza dental', nombre: 'Limpieza dental', precio: '80000' },
@@ -43,6 +44,7 @@ const PROCEDIMIENTOS_PREDEFINIDOS = [
 export default function AddPatient() {
   const router = useRouter();
   const { addPatient, patients } = useApp();
+  const dialog = useDialog();
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -71,7 +73,7 @@ export default function AddPatient() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert("Error", "El nombre es obligatorio");
+      dialog.alert("Error", "El nombre es obligatorio", "error");
       return;
     }
 
@@ -80,9 +82,10 @@ export default function AddPatient() {
       (p) => p.name.toLowerCase().trim() === name.toLowerCase().trim()
     );
     if (duplicateName) {
-      Alert.alert(
+      dialog.alert(
         "Nombre Duplicado",
-        "Ya existe un paciente con este nombre. Por favor, agrega algo único (ej. apellido completo, inicial, etc.)"
+        "Ya existe un paciente con este nombre. Por favor, agrega algo único (ej. apellido completo, inicial, etc.)",
+        "error"
       );
       return;
     }
@@ -92,7 +95,7 @@ export default function AddPatient() {
     const newPatient = {
       name,
       phone,
-      monthlyFee: parseFloat(monthlyFee),
+      monthlyFee: parseFloat(monthlyFee) || 0,
       startDate: new Date().toISOString(),
       treatmentType,
       ...(hasAppointment && {
@@ -116,12 +119,13 @@ export default function AddPatient() {
       );
     }
 
-    Alert.alert(
-      "✅ Paciente Registrado",
+    dialog.alert(
+      "Paciente Registrado",
       hasAppointment
         ? "Paciente guardado con cita programada"
         : "Paciente guardado exitosamente",
-      [{ text: "OK", onPress: () => router.back() }],
+      "success",
+      () => router.back()
     );
   };
 
@@ -448,7 +452,7 @@ export default function AddPatient() {
                           autoCapitalize="none"
                       />
                   </View>
-                  <ScrollView style={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={{ padding: 16 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
                       {filteredProcedures.map(proc => (
                           <TouchableOpacity
                               key={proc.id}

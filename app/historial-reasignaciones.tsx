@@ -15,9 +15,11 @@ import {
     AutoReassignService,
     ReassignmentHistoryEntry,
 } from "../services/AutoReassignService";
+import { useDialog } from "../shared/context/DialogContext";
 
 export default function HistorialReasignaciones() {
   const router = useRouter();
+  const dialog = useDialog();
   const [history, setHistory] = useState<ReassignmentHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -33,20 +35,14 @@ export default function HistorialReasignaciones() {
   };
 
   const handleClearHistory = () => {
-    Alert.alert(
+    dialog.confirm(
       "Confirmar",
       "¿Estás seguro de que quieres borrar todo el historial?",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Borrar",
-          style: "destructive",
-          onPress: async () => {
-            await AutoReassignService.clearHistory();
-            await loadHistory();
-          },
-        },
-      ],
+      async () => {
+        await AutoReassignService.clearHistory();
+        await loadHistory();
+      },
+      "danger"
     );
   };
 

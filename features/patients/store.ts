@@ -149,17 +149,29 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
   },
 
   deleteVisit: (patientId, visitId) => {
+    console.log("👉 deleteVisit invocada:", { patientId, visitId });
     const patient = get().patients.find((p) => p.id === patientId);
     const visit = patient?.visits?.find((v) => v.id === visitId);
 
+    console.log("👉 paciente encontrado:", !!patient, "visita encontrada:", !!visit);
+
     if (visit?.transactionId) {
+      console.log("👉 eliminando transaccion:", visit.transactionId);
       useFinanceStore.getState().deleteTransaction(visit.transactionId);
     }
 
     set((state) => ({
       patients: state.patients.map((p) => {
         if (p.id === patientId && p.visits) {
-          return { ...p, visits: p.visits.filter((v) => v.id !== visitId) };
+          const newVisits = p.visits.filter((v) => {
+            // Si el visitId que recibimos coincide con el v.id, lo descartamos
+            if (visitId && v.id === visitId) return false;
+            // Si por error v.id está vacío (visitas viejas) y visitId venía vacío, lo descartamos
+            if (!visitId && !v.id) return false;
+            return true;
+          });
+          console.log("👉 visitas actualizadas de", p.visits.length, "a", newVisits.length);
+          return { ...p, visits: newVisits };
         }
         return p;
       })

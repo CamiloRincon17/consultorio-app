@@ -1,13 +1,15 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Colors } from '../shared/constants/Colors';
 import { useApp } from '../context/AppContext';
 import { FormInput, PrimaryButton } from '../shared/components';
+import { useDialog } from '../shared/context/DialogContext';
+import { Colors } from '../shared/constants/Colors';
 export default function EditPatient() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
     const { patients, updatePatient, deletePatient } = useApp();
+    const dialog = useDialog();
 
     // Convertir id a string si es un array (expo-router a veces hace esto)
     const patientId = Array.isArray(id) ? id[0] : id;
@@ -24,7 +26,7 @@ export default function EditPatient() {
         if (patient) {
             setName(patient.name);
             setPhone(patient.phone);
-            setMonthlyFee(patient.monthlyFee.toString());
+            setMonthlyFee((patient.monthlyFee ?? 0).toString());
             setNotes(patient.notes || '');
             setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
         }
@@ -36,7 +38,7 @@ export default function EditPatient() {
             if (patient) {
                 setName(patient.name);
                 setPhone(patient.phone);
-                setMonthlyFee(patient.monthlyFee.toString());
+                setMonthlyFee((patient.monthlyFee ?? 0).toString());
                 setNotes(patient.notes || '');
                 setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
             }
@@ -45,7 +47,7 @@ export default function EditPatient() {
 
     const handleSave = () => {
         if (!name.trim() || !monthlyFee.trim()) {
-            Alert.alert('Error', 'Nombre y Cuota son obligatorios');
+            dialog.alert('Error', 'Nombre y Cuota son obligatorios', 'error');
             return;
         }
 
@@ -54,9 +56,10 @@ export default function EditPatient() {
             (p) => p.id !== patient!.id && p.name.toLowerCase().trim() === name.toLowerCase().trim()
         );
         if (duplicateName) {
-            Alert.alert(
+            dialog.alert(
                 'Nombre Duplicado',
-                'Ya existe otro paciente con este nombre. Por favor, agrega algo único (ej. apellido completo, inicial, etc.)'
+                'Ya existe otro paciente con este nombre. Por favor, agrega algo único (ej. apellido completo, inicial, etc.)',
+                'error'
             );
             return;
         }
@@ -64,30 +67,23 @@ export default function EditPatient() {
         updatePatient(patient!.id, {
             name,
             phone,
-            monthlyFee: parseFloat(monthlyFee),
+            monthlyFee: parseFloat(monthlyFee) || 0,
             notes,
             ...(patient!.treatmentType === 'ortodoncia' && appointmentDay ? { appointmentDay: parseInt(appointmentDay, 10) } : {})
         });
 
-        Alert.alert('Éxito', 'Datos del paciente actualizados');
-        router.back();
+        dialog.alert('Éxito', 'Datos del paciente actualizados', 'success', () => router.back());
     };
 
     const handleDelete = () => {
-        Alert.alert(
+        dialog.confirm(
             'Eliminar Paciente',
             '¿Estás seguro? Esto borrará al paciente pero mantendrá su historial financiero.',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: () => {
-                        deletePatient(patient!.id);
-                        router.replace('/(tabs)/pacientes');
-                    }
-                }
-            ]
+            () => {
+                deletePatient(patient!.id);
+                router.replace('/(tabs)/pacientes');
+            },
+            'danger'
         );
     };
 

@@ -14,8 +14,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../shared/constants/Colors";
-import { useApp, Visit } from "../context/AppContext";
+import { Visit } from "../features/patients/types";
+import { usePatientsStore } from "../features/patients/store";
+import { useFinanceStore } from "../features/finance/store";
 import { formatCOPShort } from "../shared/utils/formatCOP";
+import { toLocalDateString } from "../shared/utils/dateUtils";
+import { ConfirmModal } from "../shared/components/ConfirmModal";
+import { useDialog } from "../shared/context/DialogContext";
 
 interface VisitWithPatient extends Visit {
     patientName?: string;
@@ -27,33 +32,36 @@ export default function HistorialVisitasScreen() {
     const { id } = useLocalSearchParams();
     const patientId = Array.isArray(id) ? id[0] : id;
     const isGlobal = !patientId;
+    const dialog = useDialog();
 
-    const { patients, addVisit, updateVisit, deleteVisit, getPatientVisits } =
-        useApp();
+    const patients = usePatientsStore((s) => s.patients);
+    const addVisit = usePatientsStore((s) => s.addVisit);
+    const updateVisit = usePatientsStore((s) => s.updateVisit);
+    const deleteVisit = usePatientsStore((s) => s.deleteVisit);
 
     const patient = patientId ? patients.find((p) => p.id === patientId) : null;
 
-    // Get visits: either for one patient or all of them
-    const visits: VisitWithPatient[] = useMemo(() => {
-        if (patientId) {
-            return getPatientVisits(patientId).map(v => ({ ...v, patientId, patientName: patient?.name }));
-        } else {
-            // Global view: flatten all visits
-            return patients.flatMap((p) =>
-                (p.visits || []).map((v) => ({
-                    ...v,
-                    patientName: p.name,
-                    patientId: p.id,
-                }))
-            ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
-    }, [patients, patientId, patient, getPatientVisits]);
+    // Get visits: either for one patient or all of them directly (without useMemo to force eager re-render)
+    let visits: VisitWithPatient[] = [];
+    if (patientId) {
+        visits = (patient?.visits || []).map(v => ({ ...v, patientId, patientName: patient?.name }));
+    } else {
+        // Global view: flatten all visits
+        visits = patients.flatMap((p) =>
+            (p.visits || []).map((v) => ({
+                ...v,
+                patientName: p.name,
+                patientId: p.id,
+            }))
+        ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
 
     const [modalVisible, setModalVisible] = useState(false);
     const [editingVisit, setEditingVisit] = useState<VisitWithPatient | null>(null);
+    const [visitToDelete, setVisitToDelete] = useState<VisitWithPatient | null>(null);
 
     // Form state
-    const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+    const [date, setDate] = useState(toLocalDateString(new Date()));
     const [reason, setReason] = useState("");
     const [treatment, setTreatment] = useState("");
     const [notes, setNotes] = useState("");
@@ -78,7 +86,7 @@ export default function HistorialVisitasScreen() {
     }
 
     const resetForm = () => {
-        setDate(new Date().toISOString().split("T")[0]);
+        setDate(toLocalDateString(new Date()));
         setReason("");
         setTreatment("");
         setNotes("");
@@ -89,7 +97,7 @@ export default function HistorialVisitasScreen() {
 
     const openAddModal = () => {
         if (isGlobal) {
-            Alert.alert("Selección requerida", "Para agregar una visita, por favor ve a la sección de Pacientes y selecciona uno.");
+            dialog.alert("Selección requerida", "Para agregar una visita, por favor ve a la sección de Pacientes y selecciona uno.", "info");
             return;
         }
         resetForm();
@@ -109,7 +117,7 @@ export default function HistorialVisitasScreen() {
 
     const handleSave = () => {
         if (!date) {
-            Alert.alert("Error", "La fecha es requerida");
+            dialog.alert("Error", "La fecha es requerida", "error");
             return;
         }
 
@@ -118,7 +126,7 @@ export default function HistorialVisitasScreen() {
             reason: reason || undefined,
             treatment: treatment || undefined,
             notes: notes || undefined,
-            cost: cost ? parseFloat(cost) : undefined,
+            cost: cost ? (parseFloat(cost) || 0) : undefined,
             paid,
         };
 
@@ -127,11 +135,11 @@ export default function HistorialVisitasScreen() {
             const targetPatientId = editingVisit.patientId || patientId;
             if (targetPatientId) {
                 updateVisit(targetPatientId, editingVisit.id, visitData);
-                Alert.alert("Éxito", "Visita actualizada correctamente");
+                dialog.alert("Éxito", "Visita actualizada correctamente", "success");
             }
         } else if (patientId) {
             addVisit(patientId, visitData);
-            Alert.alert("Éxito", "Visita agregada correctamente");
+            dialog.alert("Éxito", "Visita agregada correctamente", "success");
         }
 
         setModalVisible(false);
@@ -139,24 +147,16 @@ export default function HistorialVisitasScreen() {
     };
 
     const handleDelete = (visit: VisitWithPatient) => {
-        const targetPatientId = visit.patientId || patientId;
-        if (!targetPatientId) return;
+        setVisitToDelete(visit);
+    };
 
-        Alert.alert(
-            "Confirmar",
-            "¿Estás seguro de eliminar esta visita?",
-            [
-                { text: "Cancelar", style: "cancel" },
-                {
-                    text: "Eliminar",
-                    style: "destructive",
-                    onPress: () => {
-                        deleteVisit(targetPatientId, visit.id);
-                        Alert.alert("Éxito", "Visita eliminada");
-                    },
-                },
-            ],
-        );
+    const confirmDelete = () => {
+        if (!visitToDelete) return;
+        const targetPatientId = visitToDelete.patientId || patientId;
+        if (targetPatientId) {
+            deleteVisit(targetPatientId, visitToDelete.id);
+        }
+        setVisitToDelete(null);
     };
 
     const renderVisitCard = ({ item }: { item: VisitWithPatient }) => {
@@ -486,6 +486,16 @@ export default function HistorialVisitasScreen() {
                     </View>
                 </View>
             </Modal>
+
+            <ConfirmModal
+                visible={!!visitToDelete}
+                title="Eliminar Visita"
+                message="¿Estás seguro que deseas eliminar esta visita? Esta acción no se puede deshacer y borrará el ingreso registrado."
+                confirmText="Sí, Eliminar"
+                onConfirm={confirmDelete}
+                onCancel={() => setVisitToDelete(null)}
+                icon="trash"
+            />
         </SafeAreaView>
     );
 }

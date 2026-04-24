@@ -1,35 +1,34 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../shared/constants/Colors';
 import { useApp } from '../context/AppContext';
 import { FormInput, PrimaryButton } from '../shared/components';
+import { useDialog } from '../shared/context/DialogContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
-
 export default function AddTransaction() {
     const router = useRouter();
     const { addTransaction } = useApp();
+    const dialog = useDialog();
 
     const [type, setType] = useState<'INCOME' | 'EXPENSE'>('INCOME');
     const [amount, setAmount] = useState('');
     const [description, setDescription] = useState('');
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
-
     const handleSave = () => {
         if (!amount.trim()) {
-            Alert.alert('Error', 'El monto es obligatorio');
+            dialog.alert('Error', 'El monto es obligatorio', 'error');
             return;
         }
         if (!description.trim()) {
-            Alert.alert('Error', 'La descripción es obligatoria');
+            dialog.alert('Error', 'La descripción es obligatoria', 'error');
             return;
         }
 
         addTransaction({
             type,
-            amount: parseFloat(amount),
+            amount: parseFloat(amount) || 0,
             description,
             date: date.toISOString(),
         });
