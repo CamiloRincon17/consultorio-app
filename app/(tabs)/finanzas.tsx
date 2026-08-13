@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React from "react";
+import React, { useCallback } from "react";
 import {
-  ScrollView,
+  RefreshControl,
   SectionList,
   StyleSheet,
   Text,
@@ -14,15 +14,27 @@ import { Colors } from "../../shared/constants/Colors";
 import { Transaction } from "../../features/finance/types";
 import { useFinanceStore } from "../../features/finance/store";
 import { usePatientsStore } from "../../features/patients/store";
+import { useAuthStore } from "../../features/auth/store";
+import { useSyncStore } from "../../shared/stores/syncStore";
 import { formatCOPShort } from "../../shared/utils/formatCOP";
 import { TransactionCard } from "../../features/finance/components/TransactionCard";
+import { FinanceSkeleton } from "../../shared/components/SkeletonLoader";
 
 export default function FinanceScreen() {
   const router = useRouter();
   const transactions = useFinanceStore((s) => s.transactions);
+  const isLoading = useFinanceStore((s) => s.isLoading);
   const getFinancialSummary = useFinanceStore((s) => s.getFinancialSummary);
   const patients = usePatientsStore((s) => s.patients);
+  const userId = useAuthStore((s) => s.user?.id ?? "");
+  const refetch = useSyncStore((s) => s.refetch);
+  const isSyncing = useSyncStore((s) => s.isSyncing);
   const summary = getFinancialSummary();
+
+  const handleRefresh = useCallback(async () => {
+    if (!userId) return;
+    try { await refetch(userId); } catch {}
+  }, [userId, refetch]);
 
   const monthlyStats = React.useMemo(() => {
     const now = new Date();
@@ -135,6 +147,11 @@ export default function FinanceScreen() {
         </View>
       </View>
 
+      {isLoading ? (
+        <View style={{ flex: 1 }}>
+          <FinanceSkeleton />
+        </View>
+      ) : (
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -143,6 +160,9 @@ export default function FinanceScreen() {
           <Text style={styles.sectionHeader}>{title}</Text>
         )}
         contentContainerStyle={styles.list}
+        refreshControl={
+          <RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />
+        }
         ListHeaderComponent={
           <Text style={styles.sectionTitle}>
             {transactions.length > 0 ? "Historial de movimientos" : ""}
@@ -163,6 +183,7 @@ export default function FinanceScreen() {
         }
         stickySectionHeadersEnabled={false}
       />
+      )}
     </SafeAreaView>
   );
 }

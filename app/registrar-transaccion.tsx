@@ -1,23 +1,35 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Colors } from '../shared/constants/Colors';
 import { useApp } from '../context/AppContext';
 import { FormInput, PrimaryButton } from '../shared/components';
 import { useDialog } from '../shared/context/DialogContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
+
+/** Formatea número como 150.000 al tipear */
+function formatInputCOP(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  return parseInt(digits, 10).toLocaleString('es-CO');
+}
+/** Convierte "150.000" a 150000 */
+function parseInputCOP(formatted: string): number {
+  return parseFloat(formatted.replace(/\./g, '').replace(/,/g, '.') || '0') || 0;
+}
 export default function AddTransaction() {
     const router = useRouter();
     const { addTransaction } = useApp();
     const dialog = useDialog();
 
     const [type, setType] = useState<'INCOME' | 'EXPENSE'>('INCOME');
-    const [amount, setAmount] = useState('');
+    const [amountDisplay, setAmountDisplay] = useState('');
     const [description, setDescription] = useState('');
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const handleSave = () => {
-        if (!amount.trim()) {
+        if (!amountDisplay.trim()) {
             dialog.alert('Error', 'El monto es obligatorio', 'error');
             return;
         }
@@ -28,7 +40,7 @@ export default function AddTransaction() {
 
         addTransaction({
             type,
-            amount: parseFloat(amount) || 0,
+            amount: parseInputCOP(amountDisplay),
             description,
             date: date.toISOString(),
         });
@@ -60,10 +72,10 @@ export default function AddTransaction() {
                 <FormInput
                     label="Monto (COP)"
                     style={[styles.amountInput, { color: type === 'INCOME' ? Colors.success : Colors.danger }]}
-                    placeholder="0"
+                    placeholder="ej. 150.000"
                     keyboardType="numeric"
-                    value={amount}
-                    onChangeText={setAmount}
+                    value={amountDisplay}
+                    onChangeText={(text) => setAmountDisplay(formatInputCOP(text))}
                     autoFocus
                 />
 

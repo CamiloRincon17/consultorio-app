@@ -4,6 +4,7 @@ import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Colors } from "../../../shared/constants/Colors";
 import { formatCOPShort } from "../../../shared/utils/formatCOP";
+import { AvatarInitials } from "../../../shared/components/AvatarInitials";
 import { Patient } from "../types";
 
 export function getNextControlDate(patient: Patient): Date {
@@ -71,18 +72,18 @@ export const PatientCard = ({
   const diffTime = Math.max(0, new Date().getTime() - startDate.getTime());
   const registeredDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
+  const isPending = item._syncStatus === "pending";
+
   return (
-    <View style={[styles.card, isExpanded && styles.cardExpanded]}>
+    <View style={[styles.card, isExpanded && styles.cardExpanded, isPending && styles.cardPending]}>
       <TouchableOpacity
         onPress={() => onToggle(item.id)}
         activeOpacity={0.7}
         style={styles.cardTouchable}
       >
         <View style={styles.cardHeader}>
-          <View style={styles.cardAvatar}>
-            <Text style={styles.avatarText}>
-              {item.name.charAt(0).toUpperCase()}
-            </Text>
+          <View style={{ marginRight: 12 }}>
+            <AvatarInitials name={item.name} size={50} />
           </View>
           <View style={styles.cardContent}>
             <View style={styles.patientNameRow}>
@@ -90,6 +91,12 @@ export const PatientCard = ({
               {item.treatmentType === "ortodoncia" && item.appointmentDay && (
                 <View style={styles.dayBadge}>
                   <Text style={styles.dayBadgeText}>Día {item.appointmentDay}</Text>
+                </View>
+              )}
+              {isPending && (
+                <View style={styles.pendingBadge}>
+                  <Ionicons name="cloud-offline-outline" size={10} color={Colors.warning} />
+                  <Text style={styles.pendingBadgeText}>Pendiente</Text>
                 </View>
               )}
             </View>
@@ -115,6 +122,9 @@ export const PatientCard = ({
             <Text style={styles.monthlyFee}>
               {formatCOPShort(item.monthlyFee || 0)}
             </Text>
+            {!isPending && (
+              <Ionicons name="cloud-done-outline" size={14} color={Colors.success} style={{ marginTop: 4 }} />
+            )}
           </View>
         </View>
       </TouchableOpacity>
@@ -328,5 +338,25 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontWeight: "500",
     fontSize: 14,
+  },
+  cardPending: {
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.warning,
+  },
+  pendingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: Colors.warning + "15",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.warning + "40",
+  },
+  pendingBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: Colors.warning,
   },
 });

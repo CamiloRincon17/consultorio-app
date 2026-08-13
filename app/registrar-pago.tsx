@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, Switch, TextInput, Modal, Alert } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, Switch, TextInput, Modal, ActivityIndicator } from 'react-native';
 import { Colors } from '../shared/constants/Colors';
-import { FormInput, PrimaryButton, ConfirmModal } from '../shared/components';
+import { FormInput, PrimaryButton } from '../shared/components';
 import { Patient, useApp } from '../context/AppContext';
-import { formatCOPShort } from '../shared/utils/formatCOP';
+import { formatCOPShort, formatInputCOP, parseInputCOP } from '../shared/utils/formatCOP';
 import { toLocalDateString } from '../shared/utils/dateUtils';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useDialog } from '../shared/context/DialogContext';
+import { useFinanceStore } from '../features/finance/store';
 
 const PROCEDIMIENTOS_PREDEFINIDOS = [
     { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
@@ -34,7 +35,7 @@ export default function RegisterPayment() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
     const patientParamId = Array.isArray(id) ? id[0] : id;
-    const { patients, addTransaction, addVisit } = useApp();
+    const { patients, addTransaction, addVisit, updatePatient } = useApp();
     const dialog = useDialog();
 
     const [isRegistered, setIsRegistered] = useState(true);
@@ -56,6 +57,14 @@ export default function RegisterPayment() {
     const [searchProcedureQuery, setSearchProcedureQuery] = useState('');
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+    const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
+
+    // Suscribirse al estado de sincronización de la última transacción creada
+    const lastTransactionSyncStatus = useFinanceStore((state) => {
+        if (!lastTransactionId) return null;
+        const tx = state.transactions.find(t => t.id === lastTransactionId);
+        return tx?._syncStatus ?? null;
+    });
 
     const selectedPatient = useMemo(() =>
         patients.find(p => p.id === selectedPatientId),
@@ -79,7 +88,7 @@ export default function RegisterPayment() {
     const handleSelectPatient = useCallback((patient: Patient) => {
         setIsRegistered(true);
         setSelectedPatientId(patient.id);
-        setAmount((patient.monthlyFee ?? 0).toString());
+        setAmount(formatInputCOP(patient.monthlyFee ?? 0));
         setProcedure('Control Mensual');
         setIsCustomProcedure(false);
         setShowPatientPicker(false);
@@ -111,7 +120,7 @@ export default function RegisterPayment() {
         }
 
         const localDateStr = toLocalDateString(date); // YYYY-MM-DD in LOCAL time (no UTC drift)
-        const numericAmount = parseFloat(amount) || 0;
+        const numericAmount = parseInputCOP(amount);
 
         if (isRegistered && selectedPatientId) {
             // Para pacientes registrados, addVisit creará automáticamente la transacción vinculada
@@ -123,6 +132,26 @@ export default function RegisterPayment() {
                 paid: true,
                 notes: 'Generado automáticamente desde Registrar Pago'
             });
+
+            // Capturar el ID de la transacción recién creada para mostrar su estado de sync
+            // La transacción se crea en useFinanceStore, obtenemos la más reciente
+            setTimeout(() => {
+                const transactions = useFinanceStore.getState().transactions;
+                const newest = transactions[0]; // addTransaction inserta al inicio
+                if (newest) setLastTransactionId(newest.id);
+            }, 50);
+
+            // Si es ortodoncia, reasignar cita al siguiente mes
+            const paidPatient = patients.find(p => p.id === selectedPatientId);
+            if (paidPatient?.treatmentType === 'ortodoncia' && paidPatient.nextControlDate) {
+                const current = new Date(paidPatient.nextControlDate);
+                const nextMonth = new Date(current);
+                nextMonth.setMonth(nextMonth.getMonth() + 1);
+                updatePatient(selectedPatientId, {
+                    nextControlDate: nextMonth.toISOString(),
+                    lastAppointmentDate: new Date().toISOString(),
+                });
+            }
         } else {
             // Para pacientes anónimos, solo crear transacción (sin visita)
             addTransaction({
@@ -134,6 +163,13 @@ export default function RegisterPayment() {
                 procedure: procedure || 'Consulta General',
                 date: localDateStr,
             });
+
+            // Capturar el ID de la transacción anónima recién creada
+            setTimeout(() => {
+                const transactions = useFinanceStore.getState().transactions;
+                const newest = transactions[0];
+                if (newest) setLastTransactionId(newest.id);
+            }, 50);
         }
 
         setShowSuccessModal(true);
@@ -201,10 +237,10 @@ export default function RegisterPayment() {
                 <FormInput
                     label="Monto a Cobrar (COP)"
                     style={styles.amountInput}
-                    placeholder="0"
+                    placeholder="ej. 150.000"
                     keyboardType="numeric"
                     value={amount}
-                    onChangeText={setAmount}
+                    onChangeText={(val) => setAmount(formatInputCOP(val))}
                 />
 
                 <View style={styles.datePickerContainer}>
@@ -312,7 +348,7 @@ export default function RegisterPayment() {
                                     onPress={() => {
                                         setIsCustomProcedure(false);
                                         setProcedure(proc.nombre);
-                                        setAmount(proc.precio);
+                                        setAmount(formatInputCOP(proc.precio));
                                         setShowProcedurePicker(false);
                                         setSearchProcedureQuery('');
                                     }}
@@ -344,21 +380,63 @@ export default function RegisterPayment() {
             </Modal>
             
             {/* Success Modal */}
-            <ConfirmModal
+            <Modal
                 visible={showSuccessModal}
-                title="Pago Registrado"
-                message="El pago se ha registrado exitosamente en el sistema."
-                confirmText="Aceptar"
-                onConfirm={() => {
-                    setShowSuccessModal(false);
-                    router.back();
-                }}
-                onCancel={() => {}}
-                hideCancel={true}
-                icon="checkmark-circle"
-                iconColor={Colors.success}
-                confirmStyle="success"
-            />
+                transparent
+                animationType="fade"
+                onRequestClose={() => { setShowSuccessModal(false); router.back(); }}
+            >
+                <View style={styles.successOverlay}>
+                    <View style={styles.successCard}>
+                        {/* Ícono principal */}
+                        <View style={styles.successIconCircle}>
+                            <Ionicons name="checkmark-circle" size={56} color={Colors.success} />
+                        </View>
+
+                        <Text style={styles.successTitle}>¡Pago Registrado!</Text>
+                        <Text style={styles.successSubtitle}>
+                            El pago se guardó localmente en el sistema.
+                        </Text>
+
+                        {/* Indicador de sincronización con Supabase */}
+                        <View style={styles.syncStatusBox}>
+                            {lastTransactionSyncStatus === 'synced' ? (
+                                <>
+                                    <Ionicons name="cloud-done-outline" size={20} color={Colors.success} />
+                                    <Text style={[styles.syncStatusText, { color: Colors.success }]}>
+                                        Subido a la base de datos ✓
+                                    </Text>
+                                </>
+                            ) : lastTransactionSyncStatus === 'pending' ? (
+                                <>
+                                    <ActivityIndicator size="small" color={Colors.primary} />
+                                    <Text style={[styles.syncStatusText, { color: Colors.primary }]}>
+                                        Sincronizando con la nube...
+                                    </Text>
+                                </>
+                            ) : (
+                                <>
+                                    <Ionicons name="cloud-offline-outline" size={20} color={Colors.textSecondary} />
+                                    <Text style={[styles.syncStatusText, { color: Colors.textSecondary }]}>
+                                        Guardado local (sin conexión)
+                                    </Text>
+                                </>
+                            )}
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.successButton}
+                            onPress={() => {
+                                setShowSuccessModal(false);
+                                setLastTransactionId(null);
+                                router.back();
+                            }}
+                        >
+                            <Text style={styles.successButtonText}>Aceptar</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         </KeyboardAvoidingView>
     );
 }
@@ -540,5 +618,72 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
         fontSize: 16,
         color: Colors.text,
-    }
+    },
+    // ─── Success Modal ─────────────────────────────────────────────────────────
+    successOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 24,
+    },
+    successCard: {
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 32,
+        width: '100%',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+        elevation: 12,
+    },
+    successIconCircle: {
+        marginBottom: 16,
+    },
+    successTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: Colors.text,
+        marginBottom: 8,
+        textAlign: 'center',
+    },
+    successSubtitle: {
+        fontSize: 15,
+        color: Colors.textSecondary,
+        textAlign: 'center',
+        marginBottom: 20,
+    },
+    syncStatusBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: Colors.background,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 12,
+        width: '100%',
+        marginBottom: 24,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    syncStatusText: {
+        fontSize: 14,
+        fontWeight: '600',
+        flexShrink: 1,
+    },
+    successButton: {
+        backgroundColor: Colors.success,
+        borderRadius: 12,
+        paddingVertical: 14,
+        paddingHorizontal: 48,
+        width: '100%',
+        alignItems: 'center',
+    },
+    successButtonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
 });

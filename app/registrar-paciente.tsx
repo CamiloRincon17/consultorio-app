@@ -1,9 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState, useMemo } from "react";
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,8 +18,11 @@ import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 import { FormInput, PrimaryButton } from "../shared/components";
-import { formatCOPShort } from "../shared/utils/formatCOP";
+import { formatCOPShort, formatInputCOP, parseInputCOP } from "../shared/utils/formatCOP";
 import { useDialog } from "../shared/context/DialogContext";
+import { validatePhone, validateAmount, runValidations } from "../shared/utils/validation";
+import { useSpecialistStore } from "../features/specialists/store";
+import { findSpecialistConflictForAppointment } from "../shared/utils/scheduleUtils";
 const PROCEDIMIENTOS_PREDEFINIDOS = [
   { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
   { id: 'Limpieza dental', nombre: 'Limpieza dental', precio: '80000' },
@@ -43,8 +45,10 @@ const PROCEDIMIENTOS_PREDEFINIDOS = [
 
 export default function AddPatient() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const { addPatient, patients } = useApp();
   const dialog = useDialog();
+  const specialistBlocks = useSpecialistStore((s) => s.specialistBlocks);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -52,8 +56,8 @@ export default function AddPatient() {
   const [treatmentType, setTreatmentType] = useState<"ortodoncia" | "general">(
     "general",
   );
-  const [hasAppointment, setHasAppointment] = useState(false);
-  const [appointmentDate, setAppointmentDate] = useState(new Date());
+  const [hasAppointment, setHasAppointment] = useState(!!params.date);
+  const [appointmentDate, setAppointmentDate] = useState(params.date ? new Date(params.date as string + "T12:00:00Z") : new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [appointmentFrequency, setAppointmentFrequency] = useState<string>("4");
@@ -77,6 +81,20 @@ export default function AddPatient() {
       return;
     }
 
+    // Validate phone
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      dialog.alert("Teléfono inválido", phoneError, "error");
+      return;
+    }
+
+    // Validate amount
+    const amountError = validateAmount(monthlyFee);
+    if (amountError) {
+      dialog.alert("Monto inválido", amountError, "error");
+      return;
+    }
+
     // Check for duplicate names
     const duplicateName = patients.find(
       (p) => p.name.toLowerCase().trim() === name.toLowerCase().trim()
@@ -90,12 +108,25 @@ export default function AddPatient() {
       return;
     }
 
+    // Verificar conflicto con bloque de especialista si se agendó cita
+    if (hasAppointment) {
+      const conflict = findSpecialistConflictForAppointment(appointmentDate, specialistBlocks);
+      if (conflict) {
+        dialog.alert(
+          "Horario ocupado",
+          `El doctor especialista ${conflict.doctorName} (${conflict.specialty || 'Especialista'}) trabaja en el consultorio ese día de ${conflict.startTime} a ${conflict.endTime}. Por favor elige otra hora para la cita.`,
+          "error"
+        );
+        return;
+      }
+    }
+
 
 
     const newPatient = {
       name,
       phone,
-      monthlyFee: parseFloat(monthlyFee) || 0,
+      monthlyFee: parseInputCOP(monthlyFee),
       startDate: new Date().toISOString(),
       treatmentType,
       ...(hasAppointment && {
@@ -112,7 +143,7 @@ export default function AddPatient() {
     // Schedule notification if appointment was set
     if (hasAppointment) {
       // Note: This is a workaround - ideally addPatient should return the ID
-      await NotificationService.scheduleAppointmentNotification(
+      NotificationService.scheduleAppointmentNotification(
         `temp_${Date.now()}`,
         name,
         appointmentDate,
@@ -263,10 +294,10 @@ export default function AddPatient() {
             <View style={styles.inputGroup}>
               <FormInput
                 label="Precio del tratamiento ($)"
-                placeholder="0.00"
+                placeholder="ej. 150.000"
                 keyboardType="numeric"
                 value={monthlyFee}
-                onChangeText={setMonthlyFee}
+                onChangeText={(val) => setMonthlyFee(formatInputCOP(val))}
               />
             </View>
           </>
@@ -277,10 +308,10 @@ export default function AddPatient() {
           <>
           <FormInput
           label="Mensualidad ($)"
-          placeholder="0.00"
+          placeholder="ej. 60.000"
           keyboardType="numeric"
           value={monthlyFee}
-          onChangeText={setMonthlyFee}
+          onChangeText={(val) => setMonthlyFee(formatInputCOP(val))}
         />
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Frecuencia de citas (semanas)</Text>

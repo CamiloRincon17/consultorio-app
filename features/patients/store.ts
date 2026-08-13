@@ -1,14 +1,31 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Patient, Visit } from "./types";
+import { Patient, Visit, SyncStatus } from "./types";
 import { generateId } from "../../shared/utils/generateId";
 import { computePatientStats, getPatientVisits } from "./patientCalculations";
 import { useFinanceStore } from "../finance/store";
+import {
+  insertPatient,
+  updatePatientDb,
+  deletePatientDb,
+  insertVisit,
+  updateVisitDb,
+  deleteVisitDb,
+} from "../../services/supabase/patientsService";
+import { enqueueIfOffline } from "../../services/offlineQueue";
+
+const PATIENTS_CACHE_KEY = "PATIENTS_LOCAL_CACHE";
 
 interface PatientsState {
   patients: Patient[];
   isLoading: boolean;
+  /** Número de operaciones pendientes por sincronizar. */
+  pendingSyncCount: number;
+  /** Si los datos vinieron del caché local (aún sin confirmar con Supabase). */
+  isFromCache: boolean;
   setPatients: (patients: Patient[]) => void;
+  /** Carga pacientes desde el caché local de AsyncStorage (instantáneo). */
+  loadFromCache: () => Promise<boolean>;
   setLoading: (loading: boolean) => void;
   addPatient: (patient: Omit<Patient, "id">) => void;
   updatePatient: (id: string, updates: Partial<Patient>) => void;
@@ -18,19 +35,146 @@ interface PatientsState {
   deleteVisit: (patientId: string, visitId: string) => void;
   getPatientStats: (patientId: string) => { totalPaid: number; visitCount: number };
   getPatientVisits: (patientId: string) => Visit[];
+  /** Marca un paciente específico como sincronizado. */
+  markSynced: (patientId: string) => void;
+  /** Marca una visita específica como sincronizada. */
+  markVisitSynced: (patientId: string, visitId: string) => void;
+}
+
+/** Guarda los pacientes actuales en AsyncStorage para carga instantánea. */
+async function saveToCache(patients: Patient[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(PATIENTS_CACHE_KEY, JSON.stringify(patients));
+  } catch {
+    // Silencioso — el caché es best-effort
+  }
+}
+
+/**
+ * Helper: ejecuta una operación Supabase y, si falla por red, la encola.
+ * Retorna true si la operación fue exitosa, false si se encoló o falló.
+ */
+async function persistWithRetry(
+  fn: () => Promise<void>,
+  service: 'patients',
+  method: string,
+  args: any[],
+): Promise<boolean> {
+  try {
+    await fn();
+    return true; // ✅ Sincronizado con Supabase
+  } catch (error) {
+    const queued = await enqueueIfOffline(error, service, method, args);
+    if (queued) {
+      // Incrementar contador de pendientes para el SyncIndicator
+      usePatientsStore.setState((s) => ({ pendingSyncCount: s.pendingSyncCount + 1 }));
+    } else {
+      // Error no de red (auth, validación, etc.) — loggear pero no encolar
+      console.error(`❌ Supabase ${method}:`, error);
+    }
+    return false;
+  }
 }
 
 export const usePatientsStore = create<PatientsState>((set, get) => ({
   patients: [],
   isLoading: true,
-  setPatients: (patients) => set({ patients }),
+  pendingSyncCount: 0,
+  isFromCache: false,
+
+  /** 
+   * Establece pacientes desde Supabase (cloud). 
+   * Todos se marcan como 'synced' y se guarda caché local.
+   * - Pacientes solo-locales pendientes se preservan (merge).
+   * - Visitas locales que aún no llegaron a la nube se re-adjuntan
+   *   para evitar pérdida de datos entre dispositivos o recargas.
+   */
+  setPatients: (cloudPatients) => {
+    const current = get().patients;
+    const cloudIds = new Set(cloudPatients.map((p) => p.id));
+
+    // Mapa rápido de pacientes locales para lookup de visitas pendientes
+    const localMap = new Map(current.map((p) => [p.id, p]));
+
+    // 1. Pacientes que están solo en local (no subidos aún)
+    const localOnlyPending = current.filter(
+      (p) => p._syncStatus === "pending" && !cloudIds.has(p.id)
+    );
+
+    // 2. Para pacientes que SÍ están en la nube, re-adjuntar visitas
+    //    locales que aún no aparecen en Supabase (pendientes de sync)
+    const synced = cloudPatients.map((cloudPatient) => {
+      const localPatient = localMap.get(cloudPatient.id);
+      const cloudVisitIds = new Set((cloudPatient.visits || []).map((v) => v.id));
+
+      // Visitas locales que no están en la nube todavía
+      const pendingLocalVisits = (localPatient?.visits || []).filter(
+        (v) => !cloudVisitIds.has(v.id)
+      );
+
+      return {
+        ...cloudPatient,
+        _syncStatus: "synced" as SyncStatus,
+        // Añadir las visitas locales pendientes al inicio (más recientes)
+        visits: pendingLocalVisits.length > 0
+          ? [...pendingLocalVisits, ...(cloudPatient.visits || [])]
+          : cloudPatient.visits,
+      };
+    });
+
+    // 3. Combinar: nube (con visitas pendientes re-adjuntadas) + pacientes solo-locales
+    const merged = [...synced, ...localOnlyPending];
+
+    set({ patients: merged, isFromCache: false });
+    saveToCache(merged);
+  },
+
+  /** Carga pacientes desde AsyncStorage para arranque instantáneo. */
+  loadFromCache: async () => {
+    try {
+      const raw = await AsyncStorage.getItem(PATIENTS_CACHE_KEY);
+      if (raw) {
+        const cached: Patient[] = JSON.parse(raw);
+        if (cached.length > 0) {
+          set({ patients: cached, isFromCache: true, isLoading: false });
+          return true;
+        }
+      }
+    } catch {
+      // Cache corrupto — ignorar
+    }
+    return false;
+  },
+
   setLoading: (isLoading) => set({ isLoading }),
 
   addPatient: (newPatient) => {
-    const patient: Patient = { ...newPatient, id: generateId() };
+    const patient: Patient = {
+      ...newPatient,
+      id: generateId(),
+      _syncStatus: "pending", // Inicia como pendiente
+    };
+
+    // 1. Actualizar UI inmediatamente (optimistic update)
     set((state) => ({ patients: [...state.patients, patient] }));
-    
-    // Notifications...
+
+    // 2. Persistir en Supabase con cola offline
+    persistWithRetry(
+      () => insertPatient(patient),
+      'patients',
+      'insertPatient',
+      [patient],
+    ).then((success) => {
+      if (success) {
+        // Marcar como sincronizado
+        usePatientsStore.getState().markSynced(patient.id);
+      }
+    });
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
+
+    // 4. Notificaciones
     if (patient.nextControlDate) {
       import("../../services/NotificationService").then(({ NotificationService }) => {
         NotificationService.scheduleAppointmentNotification(
@@ -43,12 +187,28 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
   },
 
   updatePatient: (id, updates) => {
+    // 1. Actualizar UI inmediatamente (marcar como pendiente hasta confirmar sync)
     set((state) => {
-      const patients = state.patients.map((p) => (p.id === id ? { ...p, ...updates } : p));
+      const patients = state.patients.map((p) => (p.id === id ? { ...p, ...updates, _syncStatus: 'pending' as SyncStatus } : p));
       return { patients };
     });
-    
-    // Notifications...
+
+    // 2. Persistir en Supabase con cola offline
+    persistWithRetry(
+      () => updatePatientDb(id, updates),
+      'patients',
+      'updatePatientDb',
+      [id, updates],
+    ).then((success) => {
+      if (success) {
+        usePatientsStore.getState().markSynced(id);
+      }
+    });
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
+
+    // 4. Notificaciones
     if (updates.nextControlDate !== undefined) {
       const patient = get().patients.find((p) => p.id === id);
       if (patient) {
@@ -68,9 +228,22 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
   },
 
   deletePatient: (id) => {
+    // 1. Actualizar UI inmediatamente
     set((state) => ({
       patients: state.patients.filter((p) => p.id !== id),
     }));
+
+    // 2. Persistir en Supabase (CASCADE elimina visitas automáticamente)
+    persistWithRetry(
+      () => deletePatientDb(id),
+      'patients',
+      'deletePatientDb',
+      [id],
+    );
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
+
     import("../../services/NotificationService").then(({ NotificationService }) => {
       NotificationService.cancelAppointmentNotification(id);
     });
@@ -96,15 +269,38 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
       });
     }
 
-    const visit: Visit = { ...newVisit, id: visitId, transactionId };
+    const visit: Visit = {
+      ...newVisit,
+      id: visitId,
+      transactionId,
+      _syncStatus: 'pending' as SyncStatus,
+      _lastModified: new Date().toISOString(),
+    };
+
+    // 1. Actualizar UI inmediatamente
     set((state) => ({
       patients: state.patients.map((p) => {
         if (p.id === patientId) {
           return { ...p, visits: [visit, ...(p.visits || [])] };
         }
         return p;
-      })
+      }),
     }));
+
+    // 2. Persistir visita en Supabase con cola offline
+    persistWithRetry(
+      () => insertVisit(visit, patientId),
+      'patients',
+      'insertVisit',
+      [visit, patientId],
+    ).then((success) => {
+      if (success) {
+        usePatientsStore.getState().markVisitSynced(patientId, visitId);
+      }
+    });
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
   },
 
   updateVisit: (patientId, visitId, updates) => {
@@ -135,47 +331,74 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
       }
     }
 
+    const now = new Date().toISOString();
+
+    // 1. Actualizar UI inmediatamente (marcar como pendiente y registrar timestamp)
     set((state) => ({
       patients: state.patients.map((p) => {
         if (p.id === patientId && p.visits) {
           return {
             ...p,
-            visits: p.visits.map((v) => (v.id === visitId ? { ...v, ...updates } : v)),
+            visits: p.visits.map((v) =>
+              v.id === visitId
+                ? { ...v, ...updates, _syncStatus: 'pending' as SyncStatus, _lastModified: now }
+                : v
+            ),
           };
         }
         return p;
-      })
+      }),
     }));
+
+    // 2. Persistir en Supabase con cola offline
+    persistWithRetry(
+      () => updateVisitDb(visitId, updates, patientId),
+      'patients',
+      'updateVisitDb',
+      [visitId, updates, patientId],
+    ).then((success) => {
+      if (success) {
+        usePatientsStore.getState().markVisitSynced(patientId, visitId);
+      }
+    });
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
   },
 
   deleteVisit: (patientId, visitId) => {
-    console.log("👉 deleteVisit invocada:", { patientId, visitId });
     const patient = get().patients.find((p) => p.id === patientId);
     const visit = patient?.visits?.find((v) => v.id === visitId);
 
-    console.log("👉 paciente encontrado:", !!patient, "visita encontrada:", !!visit);
-
     if (visit?.transactionId) {
-      console.log("👉 eliminando transaccion:", visit.transactionId);
       useFinanceStore.getState().deleteTransaction(visit.transactionId);
     }
 
+    // 1. Actualizar UI inmediatamente
     set((state) => ({
       patients: state.patients.map((p) => {
         if (p.id === patientId && p.visits) {
           const newVisits = p.visits.filter((v) => {
-            // Si el visitId que recibimos coincide con el v.id, lo descartamos
             if (visitId && v.id === visitId) return false;
-            // Si por error v.id está vacío (visitas viejas) y visitId venía vacío, lo descartamos
             if (!visitId && !v.id) return false;
             return true;
           });
-          console.log("👉 visitas actualizadas de", p.visits.length, "a", newVisits.length);
           return { ...p, visits: newVisits };
         }
         return p;
-      })
+      }),
     }));
+
+    // 2. Persistir en Supabase con cola offline
+    persistWithRetry(
+      () => deleteVisitDb(visitId),
+      'patients',
+      'deleteVisitDb',
+      [visitId],
+    );
+
+    // 3. Guardar caché local
+    saveToCache(get().patients);
   },
 
   getPatientStats: (patientId: string) => {
@@ -184,11 +407,30 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
   },
 
   getPatientVisits: (patientId: string) => getPatientVisits(patientId, get().patients),
-}));
 
-// Subscribe to persist to AsyncStorage
-usePatientsStore.subscribe((state, prevState) => {
-  if (state.patients !== prevState.patients && !state.isLoading) {
-    AsyncStorage.setItem("STORAGE_KEY_PATIENTS", JSON.stringify(state.patients)).catch(e => console.error(e));
-  }
-});
+  markSynced: (patientId: string) => {
+    set((state) => ({
+      patients: state.patients.map((p) =>
+        p.id === patientId ? { ...p, _syncStatus: "synced" as SyncStatus } : p
+      ),
+    }));
+    saveToCache(get().patients);
+  },
+
+  markVisitSynced: (patientId: string, visitId: string) => {
+    set((state) => ({
+      patients: state.patients.map((p) => {
+        if (p.id !== patientId || !p.visits) return p;
+        return {
+          ...p,
+          visits: p.visits.map((v) =>
+            v.id === visitId
+              ? { ...v, _syncStatus: 'synced' as SyncStatus }
+              : v
+          ),
+        };
+      }),
+    }));
+    saveToCache(get().patients);
+  },
+}));

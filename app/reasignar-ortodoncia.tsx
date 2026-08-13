@@ -1,8 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-    Alert,
     FlatList,
     ScrollView,
     StyleSheet,
@@ -152,8 +151,9 @@ export default function ReasignarOrtodoncia() {
       ? new Date(patient.nextControlDate)
       : new Date();
 
+    // Advance by exactly 1 calendar month (same day, e.g. May 8 -> June 8)
     const nextAppointment = new Date(baseDate);
-    nextAppointment.setDate(nextAppointment.getDate() + weeks * 7);
+    nextAppointment.setMonth(nextAppointment.getMonth() + 1);
 
     updatePatient(patient.id, {
       nextControlDate: nextAppointment.toISOString(),

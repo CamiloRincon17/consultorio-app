@@ -28,8 +28,8 @@ export default function SettingsScreen() {
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   
-  const hasPinSet = !!useAuthStore((s) => s.pin);
-  const removePin = useAuthStore((s) => s.removePin);
+  const signOut = useAuthStore((s) => s.signOut);
+  const userEmail = useAuthStore((s) => s.user?.email ?? '');
 
   const handleExport = async () => {
     try {
@@ -257,44 +257,13 @@ export default function SettingsScreen() {
     notificationMinute: 0,
   });
   const [pendingNotifications, setPendingNotifications] = useState(0);
-  const [lastAutoReassign, setLastAutoReassign] = useState<Date | null>(null);
-  const [isReassigning, setIsReassigning] = useState(false);
 
   useEffect(() => {
     loadNotificationSettings();
     loadPendingNotifications();
-    loadLastAutoReassignDate();
   }, []);
 
-  const loadLastAutoReassignDate = async () => {
-    const lastDate = await AutoReassignService.getLastAutoReassignDate();
-    setLastAutoReassign(lastDate);
-  };
 
-  const handleManualReassign = async () => {
-    dialog.confirm(
-      "¿Reasignar Citas?",
-      "Esto reasignará las citas de todos los pacientes de ortodoncia según su frecuencia configurada. ¿Continuar?",
-      async () => {
-        try {
-          setIsReassigning(true);
-          const result = await AutoReassignService.manualReassignAll(
-            patients,
-            updatePatient,
-          );
-          await loadLastAutoReassignDate();
-          dialog.alert("Completado", result.message, "success");
-        } catch (error) {
-          dialog.alert("Error", "No se pudo completar la reasignación", "error");
-        } finally {
-          setIsReassigning(false);
-        }
-      },
-      "primary"
-    );
-  };
-
-  const { updatePatient } = useApp();
 
   const loadNotificationSettings = async () => {
     try {
@@ -376,6 +345,7 @@ export default function SettingsScreen() {
         "success"
       );
     } catch (error) {
+      console.error("Error setting days in advance:", error);
       dialog.alert("Error", "No se pudo guardar la configuración", "error");
     }
   };
@@ -519,48 +489,61 @@ export default function SettingsScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🛡️ Seguridad</Text>
+        <Text style={styles.sectionTitle}>🩺 Doctor & Especialistas</Text>
+        <TouchableOpacity
+          style={styles.item}
+          onPress={() => router.push('/registrar-bloque-especialista')}
+        >
+          <View style={[styles.iconContainer, { backgroundColor: '#EEF2FF' }]}>
+            <Ionicons name="medkit-outline" size={24} color="#4F46E5" />
+          </View>
+          <View style={styles.itemContent}>
+            <Text style={styles.itemTitle}>Reservar Bloque de Doctor Especialista</Text>
+            <Text style={styles.itemSubtitle}>Configura turnos recurrentes o fechas del especialista</Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={20}
+            color={Colors.textSecondary}
+          />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🔐 Sesión</Text>
+        {/* Email del usuario activo */}
+        <View style={styles.item}>
+          <View style={[styles.iconContainer, { backgroundColor: Colors.primary + '20' }]}>
+            <Ionicons name="person-circle-outline" size={24} color={Colors.primary} />
+          </View>
+          <View style={styles.itemContent}>
+            <Text style={styles.itemTitle}>Doctor conectado</Text>
+            <Text style={styles.itemSubtitle}>{userEmail}</Text>
+          </View>
+        </View>
+
+        <View style={styles.separator} />
+
+        {/* Cerrar Sesión */}
         <TouchableOpacity
           style={styles.item}
           onPress={() => {
-            if (hasPinSet) {
-              dialog.confirm(
-                "Quitar PIN",
-                "¿Estás seguro de que deseas eliminar el PIN de acceso?",
-                removePin,
-                "danger"
-              );
-            } else {
-              dialog.alert(
-                "Configurar PIN",
-                "Cierra la aplicación por completo y vuelve a abrirla para configurar un PIN de seguridad en la pantalla inicial.",
-                "info"
-              );
-            }
+            dialog.confirm(
+              "Cerrar sesión",
+              "¿Estás seguro de que deseas cerrar sesión?",
+              signOut,
+              "danger"
+            );
           }}
         >
-          <View
-            style={[
-              styles.iconContainer,
-              { backgroundColor: hasPinSet ? Colors.danger + "20" : Colors.success + "20" },
-            ]}
-          >
-            <Ionicons
-              name={hasPinSet ? "lock-open-outline" : "lock-closed-outline"}
-              size={24}
-              color={hasPinSet ? Colors.danger : Colors.success}
-            />
+          <View style={[styles.iconContainer, { backgroundColor: Colors.danger + '20' }]}>
+            <Ionicons name="log-out-outline" size={24} color={Colors.danger} />
           </View>
           <View style={styles.itemContent}>
-            <Text style={styles.itemTitle}>
-              {hasPinSet ? "Desactivar PIN de Seguridad" : "PIN No Configurado"}
-            </Text>
-            <Text style={styles.itemSubtitle}>
-              {hasPinSet
-                ? "Quitar el bloqueo al iniciar la app"
-                : "Se pedirá configurar uno al iniciar"}
-            </Text>
+            <Text style={[styles.itemTitle, { color: Colors.danger }]}>Cerrar Sesión</Text>
+            <Text style={styles.itemSubtitle}>Volver a la pantalla de inicio de sesión</Text>
           </View>
+          <Ionicons name="chevron-forward" size={20} color={Colors.danger} />
         </TouchableOpacity>
       </View>
 

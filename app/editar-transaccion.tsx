@@ -2,7 +2,6 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -15,6 +14,8 @@ import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { FormInput, PrimaryButton } from "../shared/components";
 import { useDialog } from "../shared/context/DialogContext";
+import { formatInputCOP, parseInputCOP } from "../shared/utils/formatCOP";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,6 +24,7 @@ export default function EditTransaction() {
   const { id } = useLocalSearchParams();
   const { transactions, updateTransaction, deleteTransaction } = useApp();
   const dialog = useDialog();
+  const insets = useSafeAreaInsets();
 
   // Convertir id a string si es un array (expo-router a veces hace esto)
   const transactionId = Array.isArray(id) ? id[0] : id;
@@ -39,7 +41,7 @@ export default function EditTransaction() {
   // Actualizar el estado cuando cambia la transacción
   useEffect(() => {
     if (transaction) {
-      setAmount((transaction.amount ?? 0).toString());
+      setAmount(formatInputCOP(transaction.amount ?? 0));
       setDescription(transaction.description);
       setProcedure(transaction.procedure || "");
       if (transaction.date) {
@@ -52,7 +54,7 @@ export default function EditTransaction() {
   useFocusEffect(
     useCallback(() => {
       if (transaction) {
-        setAmount((transaction.amount ?? 0).toString());
+        setAmount(formatInputCOP(transaction.amount ?? 0));
         setDescription(transaction.description);
         setProcedure(transaction.procedure || "");
         if (transaction.date) {
@@ -69,7 +71,7 @@ export default function EditTransaction() {
     }
 
     updateTransaction(transaction!.id, {
-      amount: parseFloat(amount) || 0,
+      amount: parseInputCOP(amount),
       description,
       procedure,
       date: date.toISOString(),
@@ -105,7 +107,7 @@ export default function EditTransaction() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.form}>
+      <ScrollView contentContainerStyle={[styles.form, { paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>
             {transaction.type === "INCOME" ? "Ingreso" : "Gasto"}
@@ -116,8 +118,8 @@ export default function EditTransaction() {
           label="Monto (COP)"
           style={styles.amountInput}
           value={amount}
-          onChangeText={setAmount}
-          placeholder="0"
+          onChangeText={(val) => setAmount(formatInputCOP(val))}
+          placeholder="ej. 150.000"
           keyboardType="numeric"
         />
 
@@ -168,7 +170,6 @@ export default function EditTransaction() {
           label="Eliminar Registro"
           onPress={handleDelete}
           variant="danger"
-          style={{ backgroundColor: "transparent", borderWidth: 1, borderColor: Colors.danger }}
         />
       </ScrollView>
     </KeyboardAvoidingView>

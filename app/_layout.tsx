@@ -1,8 +1,13 @@
 import { Stack } from "expo-router";
 import { useEffect } from "react";
+import * as SplashScreen from "expo-splash-screen";
 import { AppProvider, useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 import { DialogProvider } from "../shared/context/DialogContext";
+
+// Prevenir que el Splash se oculte automáticamente
+// Se ocultará manualmente en AppProvider cuando auth/datos estén listos
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function RootLayoutNav() {
   const { patients } = useApp();
@@ -128,6 +133,22 @@ function RootLayoutNav() {
       <Stack.Screen
         name="historial-visitas"
         options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="seleccionar-paciente"
+        options={{
+          presentation: "modal",
+          title: "Seleccionar Paciente",
+          headerShown: true,
+          headerBackTitle: "Atrás",
+        }}
+      />
+      <Stack.Screen
+        name="registrar-bloque-especialista"
+        options={{
+          presentation: "modal",
           headerShown: false,
         }}
       />

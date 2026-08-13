@@ -123,6 +123,15 @@ export class AutoReassignService {
     patient: Patient,
     updatePatient: (id: string, updates: Partial<Patient>) => void,
   ): Promise<string> {
+    // General patients: clear their appointment (become "sin cita")
+    if (patient.treatmentType !== "ortodoncia") {
+      updatePatient(patient.id, {
+        nextControlDate: undefined,
+        lastAppointmentDate: new Date().toISOString(),
+      });
+      return "";
+    }
+
     if (!patient.appointmentFrequency) {
       return patient.nextControlDate || new Date().toISOString();
     }
@@ -131,20 +140,17 @@ export class AutoReassignService {
       ? new Date(patient.nextControlDate)
       : new Date();
 
+    // Advance by exactly 1 calendar month (same day, e.g. May 8 -> June 8)
     const nextAppointment = new Date(baseDate);
-    nextAppointment.setDate(
-      nextAppointment.getDate() + patient.appointmentFrequency * 7,
-    );
+    nextAppointment.setMonth(nextAppointment.getMonth() + 1);
 
     const nextAppointmentISO = nextAppointment.toISOString();
 
-    // Update patient data
     updatePatient(patient.id, {
       nextControlDate: nextAppointmentISO,
       lastAppointmentDate: new Date().toISOString(),
     });
 
-    // Schedule notification
     await NotificationService.scheduleAppointmentNotification(
       patient.id,
       patient.name,

@@ -7,11 +7,11 @@ import type { Transaction } from './types';
  */
 export function computeFinancialSummary(transactions: Transaction[]) {
   const income = transactions
-    .filter((t) => t.type === 'INCOME')
+    .filter((t) => t.type === 'INCOME' && t._syncStatus !== 'deleting')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   const expenses = transactions
-    .filter((t) => t.type === 'EXPENSE')
+    .filter((t) => t.type === 'EXPENSE' && t._syncStatus !== 'deleting')
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   return { income, expenses, balance: income - expenses };
@@ -37,6 +37,7 @@ export function computeDashboardStats(transactions: Transaction[]) {
       const tDate = new Date(t.date);
       return (
         t.type === 'INCOME' &&
+        t._syncStatus !== 'deleting' &&
         tDate.getMonth() === currentMonth &&
         tDate.getFullYear() === currentYear
       );
@@ -46,7 +47,7 @@ export function computeDashboardStats(transactions: Transaction[]) {
   const weeklyIncome = transactions
     .filter((t) => {
       const tDate = new Date(t.date);
-      return t.type === 'INCOME' && tDate >= startOfWeek;
+      return t.type === 'INCOME' && t._syncStatus !== 'deleting' && tDate >= startOfWeek;
     })
     .reduce((acc, curr) => acc + curr.amount, 0);
 

@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-    Alert,
+    ActivityIndicator,
     FlatList,
     Modal,
     ScrollView,
@@ -17,7 +17,7 @@ import { Colors } from "../shared/constants/Colors";
 import { Visit } from "../features/patients/types";
 import { usePatientsStore } from "../features/patients/store";
 import { useFinanceStore } from "../features/finance/store";
-import { formatCOPShort } from "../shared/utils/formatCOP";
+import { formatCOPShort, formatInputCOP, parseInputCOP } from "../shared/utils/formatCOP";
 import { toLocalDateString } from "../shared/utils/dateUtils";
 import { ConfirmModal } from "../shared/components/ConfirmModal";
 import { useDialog } from "../shared/context/DialogContext";
@@ -110,7 +110,7 @@ export default function HistorialVisitasScreen() {
         setReason(visit.reason || "");
         setTreatment(visit.treatment || "");
         setNotes(visit.notes || "");
-        setCost(visit.cost?.toString() || "");
+        setCost(formatInputCOP(visit.cost ?? 0));
         setPaid(visit.paid || false);
         setModalVisible(true);
     };
@@ -126,7 +126,7 @@ export default function HistorialVisitasScreen() {
             reason: reason || undefined,
             treatment: treatment || undefined,
             notes: notes || undefined,
-            cost: cost ? (parseFloat(cost) || 0) : undefined,
+            cost: cost ? parseInputCOP(cost) : undefined,
             paid,
         };
 
@@ -167,6 +167,18 @@ export default function HistorialVisitasScreen() {
             year: "numeric",
         });
 
+        const isSynced = item._syncStatus === 'synced';
+        const isPending = item._syncStatus === 'pending';
+        const hasNoStatus = !item._syncStatus; // Visitas viejas sin campo (cargadas de caché)
+
+        // Mostrar fecha de última modificación si existe
+        const lastModifiedLabel = item._lastModified
+            ? new Date(item._lastModified).toLocaleString('es-ES', {
+                day: '2-digit', month: '2-digit', year: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+            })
+            : null;
+
         return (
             <View style={styles.visitCard}>
                 {/* Patient Name Header if Global */}
@@ -183,6 +195,19 @@ export default function HistorialVisitasScreen() {
                         <Text style={styles.visitDate}>{formattedDate}</Text>
                     </View>
                     <View style={styles.visitActions}>
+                        {/* Badge de estado de sincronización */}
+                        {isPending && (
+                            <View style={styles.syncBadgePending}>
+                                <ActivityIndicator size={10} color="#FF8C00" />
+                                <Text style={styles.syncBadgePendingText}>Guardando...</Text>
+                            </View>
+                        )}
+                        {isSynced && (
+                            <View style={styles.syncBadgeSynced}>
+                                <Ionicons name="cloud-done-outline" size={12} color="#2E7D32" />
+                                <Text style={styles.syncBadgeSyncedText}>En la nube</Text>
+                            </View>
+                        )}
                         <TouchableOpacity
                             onPress={() => openEditModal(item)}
                             style={styles.iconButton}
@@ -201,6 +226,14 @@ export default function HistorialVisitasScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                {/* Chip de última modificación */}
+                {lastModifiedLabel && (
+                    <View style={styles.modifiedChip}>
+                        <Ionicons name="pencil-outline" size={11} color="#6B7280" />
+                        <Text style={styles.modifiedChipText}>Modificado: {lastModifiedLabel}</Text>
+                    </View>
+                )}
 
                 {item.reason && (
                     <View style={styles.visitDetail}>
@@ -433,8 +466,8 @@ export default function HistorialVisitasScreen() {
                                 <TextInput
                                     style={styles.input}
                                     value={cost}
-                                    onChangeText={setCost}
-                                    placeholder="0"
+                                    onChangeText={(val) => setCost(formatInputCOP(val))}
+                                    placeholder="ej. 150.000"
                                     keyboardType="numeric"
                                 />
                             </View>
@@ -808,5 +841,54 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: "600",
         color: "white",
+    },
+    // ─── Badges de sincronización ─────────────────────────────────────────────
+    syncBadgePending: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "#FFF3E0",
+        paddingHorizontal: 7,
+        paddingVertical: 3,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: "#FF8C00",
+    },
+    syncBadgePendingText: {
+        fontSize: 10,
+        fontWeight: "700",
+        color: "#FF8C00",
+    },
+    syncBadgeSynced: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+        backgroundColor: "#E8F5E9",
+        paddingHorizontal: 7,
+        paddingVertical: 3,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: "#A5D6A7",
+    },
+    syncBadgeSyncedText: {
+        fontSize: 10,
+        fontWeight: "700",
+        color: "#2E7D32",
+    },
+    modifiedChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        marginBottom: 10,
+        alignSelf: "flex-start",
+        backgroundColor: "#F3F4F6",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 8,
+    },
+    modifiedChipText: {
+        fontSize: 11,
+        color: "#6B7280",
+        fontStyle: "italic",
     },
 });

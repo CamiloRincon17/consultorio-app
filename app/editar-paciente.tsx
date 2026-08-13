@@ -1,15 +1,19 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { FormInput, PrimaryButton } from '../shared/components';
 import { useDialog } from '../shared/context/DialogContext';
 import { Colors } from '../shared/constants/Colors';
+import { validatePhone, validateAmount } from '../shared/utils/validation';
+import { formatInputCOP, parseInputCOP } from '../shared/utils/formatCOP';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function EditPatient() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
     const { patients, updatePatient, deletePatient } = useApp();
     const dialog = useDialog();
+    const insets = useSafeAreaInsets();
 
     // Convertir id a string si es un array (expo-router a veces hace esto)
     const patientId = Array.isArray(id) ? id[0] : id;
@@ -26,7 +30,7 @@ export default function EditPatient() {
         if (patient) {
             setName(patient.name);
             setPhone(patient.phone);
-            setMonthlyFee((patient.monthlyFee ?? 0).toString());
+            setMonthlyFee(formatInputCOP(patient.monthlyFee ?? 0));
             setNotes(patient.notes || '');
             setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
         }
@@ -38,7 +42,7 @@ export default function EditPatient() {
             if (patient) {
                 setName(patient.name);
                 setPhone(patient.phone);
-                setMonthlyFee((patient.monthlyFee ?? 0).toString());
+                setMonthlyFee(formatInputCOP(patient.monthlyFee ?? 0));
                 setNotes(patient.notes || '');
                 setAppointmentDay(patient.appointmentDay ? patient.appointmentDay.toString() : '');
             }
@@ -46,8 +50,22 @@ export default function EditPatient() {
     );
 
     const handleSave = () => {
-        if (!name.trim() || !monthlyFee.trim()) {
-            dialog.alert('Error', 'Nombre y Cuota son obligatorios', 'error');
+        if (!name.trim()) {
+            dialog.alert('Error', 'El nombre es obligatorio', 'error');
+            return;
+        }
+
+        // Validate phone
+        const phoneError = validatePhone(phone);
+        if (phoneError) {
+            dialog.alert('Teléfono inválido', phoneError, 'error');
+            return;
+        }
+
+        // Validate amount
+        const amountError = validateAmount(monthlyFee);
+        if (amountError) {
+            dialog.alert('Monto inválido', amountError, 'error');
             return;
         }
 
@@ -67,7 +85,7 @@ export default function EditPatient() {
         updatePatient(patient!.id, {
             name,
             phone,
-            monthlyFee: parseFloat(monthlyFee) || 0,
+            monthlyFee: parseInputCOP(monthlyFee),
             notes,
             ...(patient!.treatmentType === 'ortodoncia' && appointmentDay ? { appointmentDay: parseInt(appointmentDay, 10) } : {})
         });
@@ -98,7 +116,7 @@ export default function EditPatient() {
 
     return (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-            <ScrollView contentContainerStyle={styles.form}>
+            <ScrollView contentContainerStyle={[styles.form, { paddingBottom: Math.max(insets.bottom, 24) + 24 }]}>
                 <FormInput
                     label="Nombre Completo"
                     value={name}
@@ -117,8 +135,8 @@ export default function EditPatient() {
                 <FormInput
                     label="Cuota Mensual ($)"
                     value={monthlyFee}
-                    onChangeText={setMonthlyFee}
-                    placeholder="0.00"
+                    onChangeText={(val) => setMonthlyFee(formatInputCOP(val))}
+                    placeholder="ej. 60.000"
                     keyboardType="numeric"
                 />
                 {patient.treatmentType === 'ortodoncia' && (
@@ -157,7 +175,6 @@ export default function EditPatient() {
                     label="Eliminar Paciente" 
                     onPress={handleDelete} 
                     variant="danger" 
-                    style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: Colors.danger }}
                 />
             </ScrollView>
         </KeyboardAvoidingView>

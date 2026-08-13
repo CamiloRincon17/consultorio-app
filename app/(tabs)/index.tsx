@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import {
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,63 +13,182 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Colors } from "../../shared/constants/Colors";
 import { usePatientsStore } from "../../features/patients/store";
 import { useFinanceStore } from "../../features/finance/store";
+import { useAuthStore } from "../../features/auth/store";
+import { useSyncStore } from "../../shared/stores/syncStore";
 import { computeDashboardStats } from "../../features/finance/financeCalculations";
 import { formatCOPShort } from "../../shared/utils/formatCOP";
+import { AvatarInitials } from "../../shared/components/AvatarInitials";
+import { SyncIndicator } from "../../shared/components/SyncIndicator";
+import { DashboardSkeleton } from "../../shared/components/SkeletonLoader";
 
 export default function Dashboard() {
   const router = useRouter();
   const patients = usePatientsStore((s) => s.patients);
+  const isLoading = usePatientsStore((s) => s.isLoading);
   const transactions = useFinanceStore((s) => s.transactions);
+  const userEmail = useAuthStore((s) => s.user?.email ?? "");
+  const userId = useAuthStore((s) => s.user?.id ?? "");
+  const refetch = useSyncStore((s) => s.refetch);
+  const isSyncing = useSyncStore((s) => s.isSyncing);
+
   const stats = useMemo(() => computeDashboardStats(transactions), [transactions]);
 
   const activePatients = patients.length;
+  const isFromCache = usePatientsStore((s) => s.isFromCache);
 
-  // Real pending appointments check
+  // Pacientes pendientes de sincronizar
+  const pendingSyncPatients = useMemo(() => 
+    patients.filter((p) => p._syncStatus === "pending"),
+    [patients]
+  );
+
+  // Citas pendientes (hoy o futuro)
   const now = new Date();
-  // Set to start of day for comparison to keep today's appointments active all day
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
   const upcomingAppointments = patients.filter((p) => {
     if (!p.nextControlDate) return false;
-    const date = new Date(p.nextControlDate);
-    // Return true if it's today or in the future
-    return date >= todayStart;
+    return new Date(p.nextControlDate) >= todayStart;
   });
-
   const pendingAppointments = upcomingAppointments.length;
+
+  // Balance neto del mes
+  const monthlyBalance = useMemo(() => {
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const monthTx = transactions.filter((t) => {
+      const d = new Date(t.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+    const income = monthTx
+      .filter((t) => t.type === "INCOME")
+      .reduce((s, t) => s + t.amount, 0);
+    const expenses = monthTx
+      .filter((t) => t.type === "EXPENSE")
+      .reduce((s, t) => s + t.amount, 0);
+    return { income, expenses, net: income - expenses };
+  }, [transactions]);
+
+  // Pacientes de ortodoncia que no han pagado este mes
+  const debtors = useMemo(() => {
+    const today = new Date();
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
+    return patients
+      .filter((p) => p.treatmentType === "ortodoncia" && (p.monthlyFee ?? 0) > 0)
+      .filter((p) => {
+        // Buscar si tiene un pago (INCOME) este mes
+        const hasPaidThisMonth = transactions.some(
+          (t) =>
+            t.patientId === p.id &&
+            t.type === "INCOME" &&
+            new Date(t.date).getMonth() === currentMonth &&
+            new Date(t.date).getFullYear() === currentYear
+        );
+        return !hasPaidThisMonth;
+      });
+  }, [patients, transactions]);
+
+  const handleRefresh = useCallback(async () => {
+    if (!userId) return;
+    try {
+      await refetch(userId);
+    } catch {
+      // Error handled in syncStore
+    }
+  }, [userId, refetch]);
+
+  // Nombre corto del doctor
+  const doctorName = userEmail.split("@")[0].replace(/[._-]/g, " ");
+  const capitalizedName = doctorName
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 
   const Card = ({ title, value, icon, color, onPress }: any) => (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7}>
       <View style={[styles.iconContainer, { backgroundColor: color }]}>
         <Ionicons name={icon} size={24} color="white" />
       </View>
-      <View>
+      <View style={{ flex: 1 }}>
         <Text style={styles.cardTitle}>{title}</Text>
         <Text style={styles.cardValue}>{value}</Text>
       </View>
-      <View style={styles.chevron}>
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color={Colors.textSecondary}
-        />
-      </View>
+      <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
     </TouchableOpacity>
   );
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>Resumen</Text>
+            <Text style={styles.headerSubtitle}>Cargando datos...</Text>
+          </View>
+        </View>
+        <DashboardSkeleton />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Resumen</Text>
-          <Text style={styles.headerSubtitle}>Bienvenido, Doctor</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Resumen </Text>
+          <Text style={styles.headerSubtitle}>
+            Hola, {capitalizedName}
+          </Text>
+          <Text style={styles.headerSubtitle}>
+            Dios te bendiga
+          </Text>
         </View>
-        <TouchableOpacity onPress={() => router.push("/configuracion")}>
+        <SyncIndicator />
+        <TouchableOpacity
+          onPress={() => router.push("/configuracion")}
+          style={{ marginLeft: 12 }}
+        >
           <Ionicons name="settings-outline" size={24} color={Colors.text} />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />
+        }
+      >
+        {/* ── Balance del Mes ── */}
+        <View style={styles.balanceCard}>
+          <Text style={styles.balanceTitle}>Balance del Mes</Text>
+          <Text
+            style={[
+              styles.balanceAmount,
+              { color: monthlyBalance.net >= 0 ? Colors.success : Colors.danger },
+            ]}
+          >
+            {formatCOPShort(monthlyBalance.net)}
+          </Text>
+          <View style={styles.balanceRow}>
+            <View style={styles.balanceItem}>
+              <Ionicons name="arrow-up-circle" size={16} color={Colors.success} />
+              <Text style={styles.balanceLabel}>Ingresos</Text>
+              <Text style={[styles.balanceValue, { color: Colors.success }]}>
+                {formatCOPShort(monthlyBalance.income)}
+              </Text>
+            </View>
+            <View style={styles.balanceDivider} />
+            <View style={styles.balanceItem}>
+              <Ionicons name="arrow-down-circle" size={16} color={Colors.danger} />
+              <Text style={styles.balanceLabel}>Gastos</Text>
+              <Text style={[styles.balanceValue, { color: Colors.danger }]}>
+                {formatCOPShort(monthlyBalance.expenses)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* ── Stats Cards ── */}
         <View style={styles.statsContainer}>
           <Card
             title="Pacientes"
@@ -87,8 +207,8 @@ export default function Dashboard() {
           <Card
             title="Reporte Semanal"
             value={formatCOPShort(stats.weeklyIncome)}
-            icon="cash"
-            color={Colors.success}
+            icon="trending-up"
+            color="#8B5CF6"
             onPress={() => router.push("/reporte-semanal")}
           />
           <Card
@@ -100,6 +220,44 @@ export default function Dashboard() {
           />
         </View>
 
+        {/* ── Pacientes Pendientes de Subir ── */}
+        {pendingSyncPatients.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="cloud-offline-outline" size={18} color={Colors.warning} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Pendientes de Subir</Text>
+              <Text style={styles.sectionBadge}>{pendingSyncPatients.length}</Text>
+            </View>
+            <Text style={{ fontSize: 13, color: Colors.textSecondary, marginBottom: 12 }}>
+              Estos pacientes se subirán cuando haya conexión
+            </Text>
+            {pendingSyncPatients.slice(0, 3).map((p) => (
+              <View key={p.id} style={styles.debtorCard}>
+                <AvatarInitials name={p.name} size={36} />
+                <View style={styles.debtorContent}>
+                  <Text style={styles.debtorName}>{p.name}</Text>
+                  <Text style={styles.debtorSub}>
+                    {p.treatmentType === 'ortodoncia' ? 'Ortodoncia' : 'General'}
+                  </Text>
+                </View>
+                <View style={styles.debtorBadge}>
+                  <Text style={styles.debtorBadgeText}>📱 Local</Text>
+                </View>
+              </View>
+            ))}
+            {pendingSyncPatients.length > 3 && (
+              <TouchableOpacity
+                style={{ alignItems: 'center', paddingVertical: 8 }}
+                onPress={() => router.push("/(tabs)/pacientes")}
+              >
+                <Text style={{ color: Colors.primary, fontWeight: '600', fontSize: 14 }}>
+                  Ver todos ({pendingSyncPatients.length})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
 
@@ -107,44 +265,28 @@ export default function Dashboard() {
             style={styles.actionButton}
             onPress={() => router.push("/registrar-pago")}
           >
-            <View
-              style={[styles.actionIcon, { backgroundColor: Colors.success }]}
-            >
+            <View style={[styles.actionIcon, { backgroundColor: Colors.success }]}>
               <Ionicons name="card-outline" size={24} color="white" />
             </View>
             <View style={styles.actionContent}>
               <Text style={styles.actionTitle}>Registrar Pago</Text>
-              <Text style={styles.actionSubtitle}>
-                Cobrar mensualidad a paciente
-              </Text>
+              <Text style={styles.actionSubtitle}>Cobrar mensualidad a paciente</Text>
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={Colors.textSecondary}
-            />
+            <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.actionButton}
             onPress={() => router.push("/registrar-paciente")}
           >
-            <View
-              style={[styles.actionIcon, { backgroundColor: Colors.primary }]}
-            >
+            <View style={[styles.actionIcon, { backgroundColor: Colors.primary }]}>
               <Ionicons name="person-add-outline" size={24} color="white" />
             </View>
             <View style={styles.actionContent}>
               <Text style={styles.actionTitle}>Nuevo Paciente</Text>
-              <Text style={styles.actionSubtitle}>
-                Registrar historial y cuota
-              </Text>
+              <Text style={styles.actionSubtitle}>Registrar historial y cuota</Text>
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color={Colors.textSecondary}
-            />
+            <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -161,7 +303,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 24,
+    padding: 20,
+    paddingBottom: 16,
     backgroundColor: "white",
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
@@ -172,15 +315,66 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   headerSubtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.textSecondary,
-    marginTop: 4,
+    marginTop: 2,
   },
   content: {
     padding: 16,
+    paddingBottom: 32,
   },
+  // ── Balance Card ──
+  balanceCard: {
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    alignItems: "center",
+  },
+  balanceTitle: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  balanceAmount: {
+    fontSize: 34,
+    fontWeight: "800",
+    marginBottom: 16,
+  },
+  balanceRow: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "space-around",
+    alignItems: "center",
+  },
+  balanceItem: {
+    alignItems: "center",
+    gap: 4,
+  },
+  balanceLabel: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  balanceValue: {
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  balanceDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: Colors.border,
+  },
+  // ── Stats ──
   statsContainer: {
-    gap: 16,
+    gap: 10,
   },
   card: {
     flexDirection: "row",
@@ -190,53 +384,111 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
   iconContainer: {
     width: 48,
     height: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
+    marginRight: 14,
   },
   cardTitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   cardValue: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "bold",
     color: Colors.text,
   },
-  chevron: {
-    marginLeft: "auto",
-  },
+  // ── Sections ──
   section: {
     marginTop: 24,
   },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 17,
+    fontWeight: "700",
+    color: Colors.text,
+    marginBottom: 12,
+  },
+  sectionBadge: {
+    backgroundColor: Colors.danger,
+    color: "white",
+    fontSize: 12,
+    fontWeight: "bold",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: "hidden",
+    marginBottom: 12,
+  },
+  // ── Debtors ──
+  debtorCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "white",
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.warning,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  debtorContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  debtorName: {
+    fontSize: 15,
     fontWeight: "600",
     color: Colors.text,
-    marginBottom: 16,
   },
-  // Action Button Styles
+  debtorSub: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  debtorBadge: {
+    backgroundColor: Colors.warning + "18",
+    borderWidth: 1,
+    borderColor: Colors.warning,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  debtorBadgeText: {
+    color: Colors.warning,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  // ── Actions ──
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "white",
     padding: 16,
     borderRadius: 16,
-    marginBottom: 12,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.04,
     shadowRadius: 4,
-    elevation: 2,
+    elevation: 1,
   },
   actionIcon: {
     width: 44,
@@ -244,7 +496,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 16,
+    marginRight: 14,
   },
   actionContent: {
     flex: 1,
@@ -255,7 +507,7 @@ const styles = StyleSheet.create({
     color: Colors.text,
   },
   actionSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.textSecondary,
     marginTop: 2,
   },

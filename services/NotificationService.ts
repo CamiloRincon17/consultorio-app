@@ -148,22 +148,7 @@ export class NotificationService {
             if (!permissionResult.granted) {
                 console.error('❌ Cannot schedule notification - permissions not granted:', permissionResult.status);
 
-                // Show detailed error to user
-                Alert.alert(
-                    'Permisos requeridos',
-                    `No se pueden programar notificaciones.\n\nEstado: ${permissionResult.status}\n\nPor favor, habilita los permisos de notificaciones y alarmas en la configuración del sistema.`,
-                    [
-                        { text: 'Cancelar', style: 'cancel' },
-                        {
-                            text: 'Abrir Configuración',
-                            onPress: () => {
-                                if (Platform.OS === 'android') {
-                                    Linking.openSettings();
-                                }
-                            }
-                        }
-                    ]
-                );
+                // Eliminado Alert.alert para no bloquear la UI ni molestar al usuario si no da permisos.
                 return false;
             }
 
@@ -179,10 +164,6 @@ export class NotificationService {
             const now = new Date();
             if (triggerDate <= now) {
                 console.log(`⚠️ Trigger date ${triggerDate.toLocaleString('es-ES')} is in the past for ${patientName}, skipping notification`);
-                Alert.alert(
-                    'Fecha en el pasado',
-                    `La notificación se programaría para ${triggerDate.toLocaleString('es-ES')} que ya pasó.\n\nAumenta los días de anticipación o programa la cita más adelante.`
-                );
                 return false;
             }
 
@@ -240,10 +221,6 @@ export class NotificationService {
 
             if (!wasScheduled) {
                 console.error('❌ Notification was not found in scheduled list after creation');
-                Alert.alert(
-                    'Error de programación',
-                    'La notificación no se pudo programar. Esto puede ocurrir si:\n\n1. Android 12+: Debes habilitar "Alarmas y recordatorios" en configuración\n2. La batería está optimizada para esta app\n\nIntenta desactivar la optimización de batería para esta app.'
-                );
                 return false;
             }
 
@@ -258,11 +235,6 @@ export class NotificationService {
             if (error instanceof Error) {
                 console.error('   Error message:', error.message);
                 console.error('   Error stack:', error.stack);
-
-                Alert.alert(
-                    'Error al programar',
-                    `No se pudo programar la notificación:\n\n${error.message}\n\nVerifica los permisos en Configuración del sistema.`
-                );
             }
             return false;
         }

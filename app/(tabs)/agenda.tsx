@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import {
-    Alert,
     Linking,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -11,23 +11,74 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Calendar, LocaleConfig } from "react-native-calendars";
+import { ActivityIndicator } from "react-native";
 import { Colors } from "../../shared/constants/Colors";
-import { isSameLocalDay, toLocalDateString, findVisitForAppointment } from "../../shared/utils/dateUtils";
-import { formatCOPShort } from "../../shared/utils/formatCOP";
+import { isSameLocalDay, toLocalDateString } from "../../shared/utils/dateUtils";
+import { sortSpecialistBlocksByTime } from "../../shared/utils/scheduleUtils";
 import { Patient, Visit } from "../../features/patients/types";
 import { usePatientsStore } from "../../features/patients/store";
+import { useSpecialistStore } from "../../features/specialists/store";
+import { useAuthStore } from "../../features/auth/store";
+import { useSyncStore } from "../../shared/stores/syncStore";
 import { useDialog } from "../../shared/context/DialogContext";
+import { AgendaSkeleton } from "../../shared/components/SkeletonLoader";
 
-// Helper to format date key using LOCAL time (no UTC drift)
+LocaleConfig.locales['es'] = {
+  monthNames: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+  monthNamesShort: ['Ene.', 'Feb.', 'Mar.', 'Abr.', 'May.', 'Jun.', 'Jul.', 'Ago.', 'Sep.', 'Oct.', 'Nov.', 'Dic.'],
+  dayNames: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+  dayNamesShort: ['Dom.', 'Lun.', 'Mar.', 'Mié.', 'Jue.', 'Vie.', 'Sáb.'],
+  today: 'Hoy'
+};
+LocaleConfig.defaultLocale = 'es';
+
 const formatDateKey = (date: Date): string => toLocalDateString(date);
 
 export default function AgendaScreen() {
     const router = useRouter();
     const dialog = useDialog();
     const patients = usePatientsStore((s) => s.patients);
-    const [selectedDateFilter, setSelectedDateFilter] = useState<string>("TODAY");
+    const isLoading = usePatientsStore((s) => s.isLoading);
+    const specialistBlocks = useSpecialistStore((s) => s.specialistBlocks);
+    const userId = useAuthStore((s) => s.user?.id ?? "");
+    const refetch = useSyncStore((s) => s.refetch);
+    const isSyncing = useSyncStore((s) => s.isSyncing);
+    
+    const [selectedDate, setSelectedDate] = useState(toLocalDateString(new Date()));
 
-    // Get appointments and group by date
+    // Bloques del especialista para la fecha seleccionada ordenados por hora
+    const activeSpecialistBlocks = useMemo(() => {
+        const dateObj = new Date(selectedDate + "T12:00:00Z");
+        const dayOfWeek = dateObj.getUTCDay();
+        const filtered = specialistBlocks.filter((b) => {
+            if (b.isRecurring) {
+                return b.recurringDays?.includes(dayOfWeek);
+            }
+            return b.date === selectedDate;
+        });
+        return sortSpecialistBlocksByTime(filtered);
+    }, [specialistBlocks, selectedDate]);
+
+    // Conteo de items pendientes de sincronización
+    const pendingCount = useMemo(() => {
+        let count = 0;
+        patients.forEach((p) => {
+            if (p._syncStatus === 'pending') count++;
+            if (p.visits) {
+                p.visits.forEach((v) => {
+                    if (v._syncStatus === 'pending') count++;
+                });
+            }
+        });
+        return count;
+    }, [patients]);
+
+    const handleRefresh = useCallback(async () => {
+        if (!userId) return;
+        try { await refetch(userId); } catch {}
+    }, [userId, refetch]);
+
     const agendaData = useMemo(() => {
         const upcoming: (Patient & { 
             controlDateObj: Date; 
@@ -42,7 +93,6 @@ export default function AgendaScreen() {
             if (p.nextControlDate) {
                 const controlLocal = toLocalDateString(p.nextControlDate);
 
-                // Use the same 7-day window logic as findVisitForAppointment to find ALL visits near the appointment
                 const controlDateObj = new Date(controlLocal + 'T00:00:00');
                 const windowStart = new Date(controlDateObj);
                 windowStart.setDate(windowStart.getDate() - 7);
@@ -53,7 +103,6 @@ export default function AgendaScreen() {
                     return vDate >= windowStartStr && vDate <= controlLocal;
                 });
 
-                // Separate controls from extra procedures
                 const controlVisits = windowVisits.filter(v => 
                     /control|mensual|mensualidad/i.test(v.reason || '') ||
                     /control|mensual|mensualidad/i.test(v.treatment || '')
@@ -85,60 +134,33 @@ export default function AgendaScreen() {
                 p.visits.forEach(v => {
                     upcoming.push({
                         ...p,
-                        id: `${p.id}-visit-${v.id}`, // Unique ID for key mapping
+                        id: `${p.id}-visit-${v.id}`,
                         realId: p.id,
                         controlDateObj: new Date(v.date),
                         isVisit: true,
                         visitDetails: v.reason || v.treatment || "Visita",
+                        _syncStatus: v._syncStatus || p._syncStatus,
                     });
                 });
             }
         });
 
-        // Sort by date and time
         upcoming.sort((a, b) => a.controlDateObj.getTime() - b.controlDateObj.getTime());
         return upcoming;
     }, [patients]);
 
-    const filteredAgenda = useMemo(() => {
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const items = useMemo(() => {
+        const groups: any = {};
+        
+        // Pre-fill a range of dates with empty arrays to prevent Agenda infinite loops
+        const today = new Date();
+        for (let i = -30; i < 90; i++) {
+            const d = new Date(today);
+            d.setDate(d.getDate() + i);
+            groups[formatDateKey(d)] = [];
+        }
 
-        return agendaData.filter((p) => {
-            const date = new Date(
-                p.controlDateObj.getFullYear(),
-                p.controlDateObj.getMonth(),
-                p.controlDateObj.getDate()
-            );
-
-            if (selectedDateFilter === "LAST_30") {
-                const thirtyDaysAgo = new Date(today);
-                thirtyDaysAgo.setDate(today.getDate() - 30);
-                return date >= thirtyDaysAgo && date < today;
-            }
-
-            if (p.isVisit) {
-                return false; // Ocultar visitas del historial en vistas futuras
-            }
-
-            if (selectedDateFilter === "TODAY") {
-                return date.getTime() === today.getTime();
-            } else if (selectedDateFilter === "TOMORROW") {
-                const tomorrow = new Date(today);
-                tomorrow.setDate(today.getDate() + 1);
-                return date.getTime() === tomorrow.getTime();
-            } else if (selectedDateFilter === "WEEK") {
-                const nextWeek = new Date(today);
-                nextWeek.setDate(today.getDate() + 7);
-                return date >= today && date <= nextWeek;
-            }
-            return date >= today; // ALL future
-        });
-    }, [agendaData, selectedDateFilter]);
-
-    const groupedAgenda = useMemo(() => {
-        const groups: { [key: string]: typeof filteredAgenda } = {};
-        filteredAgenda.forEach((p) => {
+        agendaData.forEach((p) => {
             const dateKey = formatDateKey(p.controlDateObj);
             if (!groups[dateKey]) {
                 groups[dateKey] = [];
@@ -146,122 +168,120 @@ export default function AgendaScreen() {
             groups[dateKey].push(p);
         });
         return groups;
-    }, [filteredAgenda]);
-
-    const AppointmentCard = ({ patient }: { patient: typeof agendaData[0] }) => {
-        const timeString = patient.controlDateObj.toLocaleTimeString("en-US", {
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-        });
-
-        const isFinished = patient.isVisit || patient.hasAttended;
-
-        return (
-            <TouchableOpacity
-                style={styles.card}
-                onPress={() => {
-                    if (isFinished) {
-                        router.push({
-                            pathname: "/historial-visitas",
-                            params: { id: patient.realId },
-                        });
-                    } else {
-                        router.push({
-                            pathname: "/registrar-pago",
-                            params: { id: patient.realId },
-                        });
-                    }
-                }}
-                activeOpacity={0.7}
-            >
-                <View style={styles.timeColumn}>
-                    <Text style={styles.timeText}>{timeString}</Text>
-                    <View style={[styles.timelineDot, isFinished && { backgroundColor: Colors.success }]} />
-                    <View style={[styles.timelineLine, isFinished && { backgroundColor: Colors.success + "30" }]} />
-                
-                </View>
-                <View style={styles.contentColumn}>
-                    <Text style={styles.patientName}>{patient.name}</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 4 }}>
-                        <Text style={styles.treatmentText}>
-                            <Ionicons name={isFinished ? "checkmark-circle" : "medical"} size={12} color={Colors.textSecondary} />{" "}
-                            {isFinished 
-                                ? `Asistió: ${patient.visitDetails || 'Visita registrada'}` 
-                                : `${patient.treatmentType === "ortodoncia" ? "Ortodoncia (Pendiente)" : "General (Pendiente)"}`}
-                        </Text>
-                        
-                        {/* Render extra procedures at the same height */}
-                        {patient.extraVisits && patient.extraVisits.map(ev => (
-                            <View key={ev.id} style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-                                <Ionicons name="checkmark-circle" size={12} color={Colors.textSecondary} />
-                                <Text style={[styles.treatmentText, { color: Colors.textSecondary, marginLeft: 4 }]}>
-                                 {ev.reason || ev.treatment || 'Procedimiento'}
-                                </Text>
-                            </View>
-                        ))}
-                    </View>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.border} />
-            </TouchableOpacity>
-        );
-    };
-
-    const sortedDates = Object.keys(groupedAgenda).sort((a, b) => {
-        return selectedDateFilter === "LAST_30" ? b.localeCompare(a) : a.localeCompare(b);
-    });
+    }, [agendaData]);
 
     const buildAgendaMessage = useCallback(() => {
-        if (sortedDates.length === 0) {
-            return "";
-        }
+        const selectedDateObj = new Date(selectedDate + "T12:00:00Z");
+        const selectedMonth = selectedDateObj.getUTCMonth();
+        const selectedYear = selectedDateObj.getUTCFullYear();
 
-        const filterLabel =
-            selectedDateFilter === "TODAY" ? "Hoy" :
-            selectedDateFilter === "TOMORROW" ? "Mañana" :
-            selectedDateFilter === "WEEK" ? "Próximos 7 días" : "Todas";
+        // Siempre desde el día seleccionado en el calendario en adelante
+        const startKey = selectedDate;
+
+        const allDayKeys = new Set<string>();
+
+        Object.keys(items).forEach(key => {
+            const d = new Date(key + "T12:00:00Z");
+            if (
+                key >= startKey &&
+                d.getUTCMonth() === selectedMonth &&
+                d.getUTCFullYear() === selectedYear &&
+                items[key]?.length > 0
+            ) {
+                allDayKeys.add(key);
+            }
+        });
+
+        specialistBlocks.forEach(block => {
+            if (block.isRecurring) {
+                const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+                for (let day = 1; day <= daysInMonth; day++) {
+                    const d = new Date(selectedYear, selectedMonth, day);
+                    const key = toLocalDateString(d);
+                    if (key >= startKey && block.recurringDays?.includes(d.getDay())) {
+                        allDayKeys.add(key);
+                    }
+                }
+            } else if (block.date) {
+                const d = new Date(block.date + "T12:00:00Z");
+                if (
+                    block.date >= startKey &&
+                    d.getUTCMonth() === selectedMonth &&
+                    d.getUTCFullYear() === selectedYear
+                ) {
+                    allDayKeys.add(block.date);
+                }
+            }
+        });
+
+        const upcomingDays = [...allDayKeys].sort().map(key => ({
+            dateKey: key,
+            dateObj: new Date(key + "T12:00:00Z"),
+            patients: items[key] || [],
+        }));
+
+        if (upcomingDays.length === 0) return "";
+
+        const startDayLabel = selectedDateObj.toLocaleDateString("es-ES", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+        const rangeLabel = `Desde el ${startDayLabel}`;
 
         let message = `📋 *AGENDA DEL CONSULTORIO*\n`;
-        message += `📅 Filtro: ${filterLabel}\n`;
+        message += `📅 *${rangeLabel.charAt(0).toUpperCase() + rangeLabel.slice(1)}*\n`;
         message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-        sortedDates.forEach((dateString) => {
-            const dateObj = new Date(dateString + "T12:00:00Z");
-            const dayName = dateObj.toLocaleDateString("es-ES", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
+        let totalCitas = 0;
+        upcomingDays.forEach(({ dateKey, dateObj, patients }) => {
+            const dayLabel = dateObj.toLocaleDateString("es-ES", {
+                weekday: "long", day: "numeric", month: "long", timeZone: "UTC"
+            });
+            message += `📌 *${dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1)}*\n`;
+
+            const dayOfWeek = dateObj.getUTCDay();
+            const blocksForDay = specialistBlocks.filter(b => {
+                if (b.isRecurring) return b.recurringDays?.includes(dayOfWeek);
+                return b.date === dateKey;
+            }).sort((a, b) => {
+                const toMin = (t: string) => {
+                    const m = t.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+                    if (!m) return 0;
+                    let h = parseInt(m[1], 10);
+                    const min = parseInt(m[2], 10);
+                    if (m[3]?.toUpperCase() === 'PM' && h < 12) h += 12;
+                    if (m[3]?.toUpperCase() === 'AM' && h === 12) h = 0;
+                    return h * 60 + min;
+                };
+                return toMin(a.startTime) - toMin(b.startTime);
             });
 
-            message += `📌 *${dayName.charAt(0).toUpperCase() + dayName.slice(1)}*\n`;
-
-            groupedAgenda[dateString].forEach((p) => {
-                const timeStr = p.controlDateObj.toLocaleTimeString("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    hour12: true,
+            if (blocksForDay.length > 0) {
+                blocksForDay.forEach(block => {
+                    const specialty = block.specialty ? ` — ${block.specialty}` : '';
+                    message += `  🩺 ${block.startTime} a ${block.endTime} — *Dr. ${block.doctorName}*${specialty}\n`;
                 });
-                let typeStr = "";
-                if (p.isVisit) {
-                    typeStr = `✅ Asistió (${p.visitDetails})`;
-                } else {
-                    typeStr = p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
-                }
-                message += `  🕐 ${timeStr} — *${p.name}* (${typeStr})\n`;
-            });
+            }
 
+            patients.forEach((p: any) => {
+                const timeStr = p.controlDateObj?.toLocaleTimeString
+                    ? p.controlDateObj.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+                    : "";
+                const typeStr = p.isVisit
+                    ? `✅ Asistió`
+                    : p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
+                message += `  🕐 ${timeStr} — *${p.name}* (${typeStr})\n`;
+                totalCitas++;
+            });
             message += `\n`;
         });
 
-        message += `Total: ${filteredAgenda.length} cita(s)`;
+        message += `Total: ${totalCitas} cita(s)`;
         return message;
-    }, [sortedDates, groupedAgenda, filteredAgenda, selectedDateFilter]);
+    }, [items, selectedDate, specialistBlocks]);
 
     const shareToWhatsApp = useCallback(async () => {
         const message = buildAgendaMessage();
 
         if (!message) {
-            dialog.alert("Sin citas", "No hay citas para compartir con el filtro actual.", "info");
+            dialog.alert("Sin citas", "No hay citas para compartir en este día.", "info");
             return;
         }
 
@@ -281,12 +301,96 @@ export default function AgendaScreen() {
         } catch {
             dialog.alert("Error", "No se pudo abrir WhatsApp.", "error");
         }
-    }, [buildAgendaMessage]);
+    }, [buildAgendaMessage, dialog]);
+
+    const renderItem = useCallback((patient: any, isFirst: boolean) => {
+        if (!patient) return <View />;
+
+        const timeString = patient.controlDateObj?.toLocaleTimeString
+            ? patient.controlDateObj.toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+              })
+            : "";
+
+        const isFinished = patient.isVisit || patient.hasAttended;
+
+        return (
+            <TouchableOpacity
+                style={[styles.card, { marginTop: isFirst ? 20 : 0 }]}
+                onPress={() => {
+                    if (isFinished) {
+                        router.push({
+                            pathname: "/historial-visitas",
+                            params: { id: patient.realId },
+                        });
+                    } else {
+                        router.push({
+                            pathname: "/registrar-pago",
+                            params: { id: patient.realId },
+                        });
+                    }
+                }}
+                activeOpacity={0.7}
+            >
+                <View style={styles.timeColumn}>
+                    <Text style={styles.timeText}>{timeString}</Text>
+                    <View style={[styles.timelineDot, isFinished && { backgroundColor: Colors.success }]} />
+                </View>
+                <View style={styles.contentColumn}>
+                    <View style={styles.nameRow}>
+                        <Text style={styles.patientName} numberOfLines={1}>{patient.name}</Text>
+                        {patient._syncStatus === 'pending' ? (
+                            <View style={styles.syncBadgePending}>
+                                <ActivityIndicator size={8} color="#FF8C00" />
+                                <Text style={styles.syncBadgePendingText}>Pendiente</Text>
+                            </View>
+                        ) : patient._syncStatus === 'synced' ? (
+                            <View style={styles.syncBadgeSynced}>
+                                <Ionicons name="cloud-done-outline" size={10} color="#2E7D32" />
+                                <Text style={styles.syncBadgeSyncedText}>En la nube</Text>
+                            </View>
+                        ) : null}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 4 }}>
+                        <Text style={styles.treatmentText}>
+                            <Ionicons name={isFinished ? "checkmark-circle" : "medical"} size={12} color={Colors.textSecondary} />{" "}
+                            {isFinished 
+                                ? `Asistió: ${patient.visitDetails || 'Visita registrada'}` 
+                                : `${patient.treatmentType === "ortodoncia" ? "Ortodoncia (Pendiente)" : "General (Pendiente)"}`}
+                        </Text>
+                        
+                        {patient.extraVisits && patient.extraVisits.map((ev: any, index: number) => (
+                            <Fragment key={ev.id || index}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                                    <Ionicons name="checkmark-circle" size={12} color={Colors.textSecondary} />
+                                    <Text style={[styles.treatmentText, { color: Colors.textSecondary, marginLeft: 4 }]}>
+                                     {ev.reason || ev.treatment || 'Procedimiento'}
+                                    </Text>
+                                </View>
+                            </Fragment>
+                        ))}
+                    </View>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={Colors.border} />
+            </TouchableOpacity>
+        );
+    }, [router]);
+
 
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.title}>Agenda</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={styles.title}>Agenda</Text>
+                    {pendingCount > 0 && (
+                        <View style={styles.pendingBadge}>
+                            <Ionicons name="cloud-upload-outline" size={11} color="#FF8C00" />
+                            <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
+                        </View>
+                    )}
+                </View>
                 <TouchableOpacity
                     style={styles.whatsappButton}
                     onPress={shareToWhatsApp}
@@ -297,119 +401,108 @@ export default function AgendaScreen() {
                 </TouchableOpacity>
             </View>
 
-            <View style={styles.filterContainerOuter}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterContainer}>
-                    <TouchableOpacity
-                        style={[
-                            styles.filterButton,
-                            selectedDateFilter === "TODAY" && styles.filterButtonActive,
-                        ]}
-                        onPress={() => setSelectedDateFilter("TODAY")}
+            {isLoading ? (
+                <View style={{ padding: 16 }}><AgendaSkeleton /></View>
+            ) : (
+                <View style={{ flex: 1 }}>
+                    <Calendar
+                        current={selectedDate}
+                        onDayPress={(day: any) => setSelectedDate(day.dateString)}
+                        markedDates={{
+                            [selectedDate]: { selected: true, selectedColor: Colors.primary },
+                            ...Object.keys(items).reduce((acc: any, key) => {
+                                if (items[key]?.length > 0 && key !== selectedDate) {
+                                    acc[key] = { marked: true, dotColor: Colors.primary };
+                                }
+                                return acc;
+                            }, {})
+                        }}
+                        theme={{
+                            todayTextColor: Colors.primary,
+                            selectedDayBackgroundColor: Colors.primary,
+                            arrowColor: Colors.primary,
+                        }}
+                    />
+                    
+                    <ScrollView 
+                        style={{ flex: 1, padding: 16 }}
+                        refreshControl={<RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />}
                     >
-                        <Text
-                            style={[
-                                styles.filterText,
-                                selectedDateFilter === "TODAY" && styles.filterTextActive,
-                            ]}
-                        >
-                            Hoy
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[
-                            styles.filterButton,
-                            selectedDateFilter === "TOMORROW" && styles.filterButtonActive,
-                        ]}
-                        onPress={() => setSelectedDateFilter("TOMORROW")}
-                    >
-                        <Text
-                            style={[
-                                styles.filterText,
-                                selectedDateFilter === "TOMORROW" && styles.filterTextActive,
-                            ]}
-                        >
-                            Mañana
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[
-                            styles.filterButton,
-                            selectedDateFilter === "WEEK" && styles.filterButtonActive,
-                        ]}
-                        onPress={() => setSelectedDateFilter("WEEK")}
-                    >
-                        <Text
-                            style={[
-                                styles.filterText,
-                                selectedDateFilter === "WEEK" && styles.filterTextActive,
-                            ]}
-                        >
-                            Próx. 7 días
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[
-                            styles.filterButton,
-                            selectedDateFilter === "ALL" && styles.filterButtonActive,
-                        ]}
-                        onPress={() => setSelectedDateFilter("ALL")}
-                    >
-                        <Text
-                            style={[
-                                styles.filterText,
-                                selectedDateFilter === "ALL" && styles.filterTextActive,
-                            ]}
-                        >
-                            Todas
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[
-                            styles.filterButton,
-                            selectedDateFilter === "LAST_30" && styles.filterButtonActive,
-                        ]}
-                        onPress={() => setSelectedDateFilter("LAST_30")}
-                    >
-                        <Text
-                            style={[
-                                styles.filterText,
-                                selectedDateFilter === "LAST_30" && styles.filterTextActive,
-                            ]}
-                        >
-                            Historial 30 días
-                        </Text>
-                    </TouchableOpacity>
-                </ScrollView>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.list}>
-                {sortedDates.length === 0 ? (
-                    <View style={styles.emptyContainer}>
-                        <Ionicons name="calendar-clear-outline" size={64} color={Colors.border} />
-                        <Text style={styles.emptyText}>No hay citas programadas</Text>
-                    </View>
-                ) : (
-                    sortedDates.map((dateString) => {
-                        const dateObj = new Date(dateString + "T12:00:00Z"); // Fix timezone shift
-                        const dayName = dateObj.toLocaleDateString("es-ES", {
-                            weekday: "long",
-                            day: "numeric",
-                            month: "long",
-                        });
-
-                        return (
-                            <View key={dateString} style={styles.dayGroup}>
-                                <View style={styles.dateHeader}>
-                                    <Text style={styles.dateHeaderText}>{dayName}</Text>
-                                </View>
-                                {groupedAgenda[dateString].map((p) => (
-                                    <AppointmentCard key={p.id} patient={p} />
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <Text style={[styles.dateHeaderText, { marginBottom: 0, flex: 1 }]}>
+                                {new Date(selectedDate + "T12:00:00Z").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                                <TouchableOpacity 
+                                    style={styles.addDoctorButton}
+                                    onPress={() => router.push({ pathname: '/registrar-bloque-especialista', params: { date: selectedDate } })}
+                                >
+                                    <Ionicons name="medkit-outline" size={14} color="#4F46E5" />
+                                    <Text style={styles.addDoctorText}>+ Doctor</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={styles.addCitaButton}
+                                    onPress={() => router.push({ pathname: '/seleccionar-paciente', params: { date: selectedDate } })}
+                                >
+                                    <Ionicons name="add" size={16} color={Colors.primary} />
+                                    <Text style={styles.addCitaText}>Cita</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        
+                        {/* Bloques de Doctor Especialista */}
+                        {activeSpecialistBlocks.length > 0 && (
+                            <View style={{ marginBottom: 12 }}>
+                                <Text style={styles.sectionHeaderTitle}>🩺 Doctor Especialista en Consultorio</Text>
+                                {activeSpecialistBlocks.map((block) => (
+                                    <TouchableOpacity
+                                        key={block.id}
+                                        style={styles.specialistCard}
+                                        onPress={() => router.push({ pathname: '/registrar-bloque-especialista', params: { id: block.id } })}
+                                        activeOpacity={0.8}
+                                    >
+                                        <View style={styles.specialistHeaderRow}>
+                                            <View style={styles.specialistBadge}>
+                                                <Ionicons name="time" size={12} color="#4F46E5" />
+                                                <Text style={styles.specialistBadgeText}>
+                                                    {block.startTime} - {block.endTime} ({block.shiftTitle || "Reserva"})
+                                                </Text>
+                                            </View>
+                                            <Ionicons name="create-outline" size={16} color="#6366F1" />
+                                        </View>
+                                        <Text style={styles.specialistDoctorName}>{block.doctorName}</Text>
+                                        {block.specialty ? (
+                                            <Text style={styles.specialistSubText}>Especialidad: {block.specialty}</Text>
+                                        ) : null}
+                                        {block.notes ? (
+                                            <Text style={styles.specialistNotesText}>Notas: {block.notes}</Text>
+                                        ) : null}
+                                        <Text style={styles.specialistNotice}>
+                                         Consultorio ocupado por el doctor (atiende a sus propios pacientes)
+                                        </Text>
+                                    </TouchableOpacity>
                                 ))}
                             </View>
-                        );
-                    })
-                )}
-            </ScrollView>
+                        )}
+
+                        <Text style={styles.sectionHeaderTitle}>👤 Citas de Pacientes Propios</Text>
+                        {(!items[selectedDate] || items[selectedDate].length === 0) ? (
+                            <View style={styles.emptyContainer}>
+                                <Ionicons name="calendar-clear-outline" size={48} color={Colors.border} />
+                                <Text style={styles.emptyText}>No hay citas de pacientes propios para este día</Text>
+                            </View>
+                        ) : (
+                            items[selectedDate].map((patient: any, index: number) => (
+                                <Fragment key={patient.id || index}>
+                                    {renderItem(patient, index === 0)}
+                                </Fragment>
+                            ))
+                        )}
+                        <View style={{ height: 40 }} />
+                        <View style={{ height: 40 }} />
+                    </ScrollView>
+                </View>
+            )}
         </SafeAreaView>
     );
 }
@@ -433,6 +526,22 @@ const styles = StyleSheet.create({
         fontWeight: "bold",
         color: Colors.text,
     },
+    pendingBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#FFF3E0',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#FF8C00',
+    },
+    pendingBadgeText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#FF8C00',
+    },
     whatsappButton: {
         flexDirection: "row",
         alignItems: "center",
@@ -447,51 +556,25 @@ const styles = StyleSheet.create({
         fontWeight: "600",
         fontSize: 14,
     },
-    filterContainerOuter: {
-        backgroundColor: "white",
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
-    },
-    filterContainer: {
-        flexDirection: "row",
-        padding: 16,
-        gap: 8,
-    },
-    filterButton: {
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        borderRadius: 20,
-        backgroundColor: Colors.background,
-    },
-    filterButtonActive: {
-        backgroundColor: Colors.primary,
-    },
-    filterText: {
-        color: Colors.textSecondary,
-        fontWeight: "600",
-    },
-    filterTextActive: {
-        color: "white",
-    },
-    list: {
-        padding: 16,
-        paddingBottom: 40,
-    },
-    dayGroup: {
-        marginBottom: 24,
-    },
-    dateHeader: {
-        backgroundColor: Colors.primary + "15",
-        paddingVertical: 6,
-        paddingHorizontal: 12,
-        borderRadius: 8,
-        alignSelf: "flex-start",
-        marginBottom: 12,
-    },
     dateHeaderText: {
         color: Colors.primary,
         fontWeight: "bold",
         textTransform: "capitalize",
+        fontSize: 16,
+        marginBottom: 16,
+    },
+    addCitaButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.primary + '15',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 20,
+        gap: 4,
+    },
+    addCitaText: {
+        color: Colors.primary,
+        fontWeight: '600',
         fontSize: 14,
     },
     card: {
@@ -499,6 +582,7 @@ const styles = StyleSheet.create({
         backgroundColor: "white",
         borderRadius: 12,
         padding: 16,
+        marginRight: 16,
         marginBottom: 12,
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 1 },
@@ -525,14 +609,6 @@ const styles = StyleSheet.create({
         borderRadius: 5,
         backgroundColor: Colors.primary,
     },
-    timelineLine: {
-        position: "absolute",
-        top: 32,
-        bottom: -32,
-        width: 2,
-        backgroundColor: Colors.primary + "30",
-        zIndex: -1,
-    },
     contentColumn: {
         flex: 1,
     },
@@ -556,5 +632,122 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: Colors.textSecondary,
         fontWeight: "500",
+        textAlign: "center",
+        paddingHorizontal: 32,
+    },
+    nameRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 4,
+        gap: 8,
+    },
+    syncBadgePending: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "#FFF3E0",
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#FF8C00",
+    },
+    syncBadgePendingText: {
+        fontSize: 9,
+        fontWeight: "700",
+        color: "#FF8C00",
+    },
+    syncBadgeSynced: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+        backgroundColor: "#E8F5E9",
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#A5D6A7",
+    },
+    syncBadgeSyncedText: {
+        fontSize: 9,
+        fontWeight: "700",
+        color: "#2E7D32",
+    },
+    addDoctorButton: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 20,
+        backgroundColor: "#EEF2FF",
+        borderWidth: 1,
+        borderColor: "#C7D2FE",
+    },
+    addDoctorText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#4F46E5",
+    },
+    sectionHeaderTitle: {
+        fontSize: 13,
+        fontWeight: "700",
+        color: Colors.textSecondary,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        marginBottom: 8,
+        marginTop: 4,
+    },
+    specialistCard: {
+        backgroundColor: "#F5F3FF",
+        borderRadius: 12,
+        borderWidth: 1.5,
+        borderColor: "#C4B5FD",
+        padding: 14,
+        marginBottom: 12,
+    },
+    specialistHeaderRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 6,
+    },
+    specialistBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        backgroundColor: "#DDD6FE",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+    },
+    specialistBadgeText: {
+        fontSize: 12,
+        fontWeight: "700",
+        color: "#4C1D95",
+    },
+    specialistDoctorName: {
+        fontSize: 16,
+        fontWeight: "700",
+        color: "#312E81",
+        marginBottom: 2,
+    },
+    specialistSubText: {
+        fontSize: 13,
+        color: "#4338CA",
+        fontWeight: "500",
+    },
+    specialistNotesText: {
+        fontSize: 12,
+        color: "#6B7280",
+        marginTop: 2,
+        fontStyle: "italic",
+    },
+    specialistNotice: {
+        fontSize: 11,
+        color: "#4C1D95",
+        marginTop: 6,
+        fontWeight: "600",
     },
 });

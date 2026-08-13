@@ -1,9 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-    Alert,
     Platform,
     ScrollView,
     StyleSheet,
@@ -15,14 +14,17 @@ import { Colors } from "../shared/constants/Colors";
 import { useApp } from "../context/AppContext";
 import { NotificationService } from "../services/NotificationService";
 import { useDialog } from "../shared/context/DialogContext";
+import { useSpecialistStore } from "../features/specialists/store";
+import { findSpecialistConflictForAppointment } from "../shared/utils/scheduleUtils";
 
 export default function ModifyControl() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
+  const { id, date } = useLocalSearchParams();
   const { patients, updatePatient } = useApp();
   const dialog = useDialog();
 
   const patient = patients.find((p) => p.id === id);
+  const specialistBlocks = useSpecialistStore((s) => s.specialistBlocks);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -61,7 +63,9 @@ export default function ModifyControl() {
 
   useEffect(() => {
     if (patient) {
-      if (patient.nextControlDate) {
+      if (date) {
+        setSelectedDate(new Date(date as string + "T12:00:00Z"));
+      } else if (patient.nextControlDate) {
         setSelectedDate(new Date(patient.nextControlDate));
       } else {
         // Default to tomorrow
@@ -78,9 +82,9 @@ export default function ModifyControl() {
       checkNotificationStatus();
       loadNotificationSettings();
     }
-  }, [patient, checkNotificationStatus, loadNotificationSettings]);
+  }, [patient, date, checkNotificationStatus, loadNotificationSettings]);
 
-  const handleDateChange = (event: any, date?: Date) => {
+  const handleDateChange = (event: any, pickedDate?: Date) => {
     // On Android, dismiss the picker first
     if (Platform.OS === "android") {
       setShowDatePicker(false);
@@ -94,8 +98,8 @@ export default function ModifyControl() {
     }
 
     // Update the date/time if provided
-    if (date) {
-      setSelectedDate(date);
+    if (pickedDate) {
+      setSelectedDate(pickedDate);
     }
   };
 
@@ -112,6 +116,17 @@ export default function ModifyControl() {
       return;
     }
 
+    // Verificar conflicto con bloque de especialista
+    const conflict = findSpecialistConflictForAppointment(selectedDate, specialistBlocks);
+    if (conflict) {
+      dialog.alert(
+        "Horario ocupado",
+        `El doctor especialista ${conflict.doctorName} (${conflict.specialty || 'Especialista'}) trabaja en el consultorio ese día de ${conflict.startTime} a ${conflict.endTime}. Por favor elige otra hora.`,
+        "error"
+      );
+      return;
+    }
+
     // Save to context with treatment info
     updatePatient(patient.id, {
       nextControlDate: selectedDate.toISOString(),
@@ -119,28 +134,27 @@ export default function ModifyControl() {
       appointmentFrequency: parseInt(appointmentFrequency, 10) || undefined,
     });
 
-    // Schedule notification
-    const success = await NotificationService.scheduleAppointmentNotification(
+    // Schedule notification (without waiting)
+    NotificationService.scheduleAppointmentNotification(
       patient.id,
       patient.name,
       selectedDate,
     );
 
-    if (success) {
-      dialog.alert(
-        "Guardado",
-        "Fecha actualizada y notificación programada correctamente.",
-        "success",
-        () => router.back()
-      );
-    } else {
-      dialog.alert(
-        "Parcialmente guardado",
-        "La fecha se guardó pero no se pudo programar la notificación. Verifica permisos.",
-        "error",
-        () => router.back()
-      );
-    }
+    dialog.alert(
+      "Guardado",
+      "Fecha actualizada exitosamente.",
+      "success",
+      () => {
+        // Si viene del flujo Agenda → seleccionar-paciente → modificar-control,
+        // cerrar 2 modales para volver directo a Agenda
+        if (date) {
+          router.dismiss(2);
+        } else {
+          router.back();
+        }
+      }
+    );
   };
 
   const handleCancelNotification = async () => {
