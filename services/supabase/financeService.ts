@@ -23,11 +23,12 @@ function dbToTransaction(row: any): Transaction {
     procedure: row.procedure ?? undefined,
     visitId: row.visit_id ?? undefined,
     category: row.category ?? undefined,
+    photos: 'photos' in row && Array.isArray(row.photos) ? row.photos : undefined,
   };
 }
 
 function transactionToDb(t: Transaction, userId?: string): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     id: t.id,
     user_id: userId ?? undefined,
     type: t.type,
@@ -40,6 +41,12 @@ function transactionToDb(t: Transaction, userId?: string): Record<string, unknow
     visit_id: t.visitId ?? null,
     category: t.category ?? null,
   };
+
+  if (t.photos && t.photos.length > 0) {
+    row.photos = t.photos;
+  }
+
+  return row;
 }
 
 // ─── Transactions CRUD ────────────────────────────────────────────────────────

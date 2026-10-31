@@ -20,7 +20,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
-import { Colors } from "../constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../theme";
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const ITEM_HEIGHT = 52;          // Altura de cada ítem en la rueda
@@ -57,6 +57,7 @@ interface WheelPickerProps {
 }
 
 function WheelPicker({ items, selected, onSelect, width = 80 }: WheelPickerProps) {
+  const styles = useThemedStyles(createStyles);
   const scrollRef = useRef<ScrollView>(null);
   const selectedIdx = items.indexOf(selected);
   // Montado: scrollar al ítem seleccionado
@@ -160,6 +161,8 @@ export function TimePickerModal({
   const [hour,   setHour]   = useState("08");
   const [minute, setMinute] = useState("00");
   const [period, setPeriod] = useState("AM");
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
 
   useEffect(() => {
     if (visible) {
@@ -189,7 +192,7 @@ export function TimePickerModal({
           {/* Vista previa grande */}
           <Text style={styles.previewTime}>
             {hour}:{minute}{" "}
-            <Text style={{ color: Colors.primary }}>{period}</Text>
+            <Text style={{ color: colors.primary }}>{period}</Text>
           </Text>
 
           {/* Separador */}
@@ -245,7 +248,7 @@ export function TimePickerModal({
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 const W = Dimensions.get("window").width;
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) => StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
@@ -253,7 +256,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   dialog: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: colors.card,
     borderRadius: 24,
     paddingHorizontal: 20,
     paddingTop: 20,
@@ -268,21 +271,21 @@ const styles = StyleSheet.create({
   dialogTitle: {
     fontSize: 17,
     fontWeight: "700",
-    color: "#111827",
+    color: colors.text,
     textAlign: "center",
     marginBottom: 6,
   },
   previewTime: {
     fontSize: 40,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.text,
     textAlign: "center",
     letterSpacing: 3,
     marginBottom: 12,
   },
   divider: {
     height: 1,
-    backgroundColor: "#E5E7EB",
+    backgroundColor: colors.border,
     marginVertical: 10,
   },
   wheelsRow: {
@@ -304,9 +307,9 @@ const styles = StyleSheet.create({
     right: 4,
     height: ITEM_HEIGHT,
     borderRadius: 10,
-    backgroundColor: Colors.primary + "18",
+    backgroundColor: colors.primary + "18",
     borderWidth: 1.5,
-    borderColor: Colors.primary + "60",
+    borderColor: colors.primary + "60",
     zIndex: 1,
   },
   wheelItem: {
@@ -317,12 +320,12 @@ const styles = StyleSheet.create({
   wheelText: {
     fontSize: 22,
     fontWeight: "400",
-    color: "#C4C9D4",
+    color: colors.textSecondary,
   },
   wheelTextSelected: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.text,
   },
   fadeTop: {
     position: "absolute",
@@ -348,7 +351,7 @@ const styles = StyleSheet.create({
   colonText: {
     fontSize: 30,
     fontWeight: "800",
-    color: "#111827",
+    color: colors.text,
     marginHorizontal: 2,
     marginBottom: 4,
   },
@@ -365,19 +368,19 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     minWidth: 56,
     alignItems: "center",
   },
   periodBtnActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   periodText: {
     fontSize: 15,
     fontWeight: "700",
-    color: "#9CA3AF",
+    color: colors.textSecondary,
   },
   periodTextActive: {
     color: "#FFFFFF",
@@ -393,20 +396,20 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     alignItems: "center",
   },
   cancelText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6B7280",
+    color: colors.textSecondary,
   },
   confirmBtn: {
     flex: 2,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     alignItems: "center",
   },
   confirmText: {

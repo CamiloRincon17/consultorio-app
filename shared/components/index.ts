@@ -12,6 +12,7 @@ export { PrimaryButton } from './PrimaryButton';
 export { AvatarInitials } from './AvatarInitials';
 export { SyncIndicator } from './SyncIndicator';
 export { TimePickerModal } from './TimePickerModal';
+export { PhotoGallery } from './PhotoGallery';
 export {
   Skeleton,
   PatientCardSkeleton,

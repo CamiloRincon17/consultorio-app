@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/Colors';
+import { useThemedStyles, type Palette } from '../theme';
 
 interface ScreenHeaderProps {
   title: string;
@@ -36,6 +36,7 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   onAction,
   rightElement,
 }) => {
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.header}>
       <Text style={styles.title}>{title}</Text>
@@ -51,23 +52,23 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) => StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: 'white',
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: Colors.text,
+    color: colors.text,
   },
   actionButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,

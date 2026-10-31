@@ -1,5 +1,5 @@
 import { supabase } from './client';
-import type { Patient, Visit } from '../../features/patients/types';
+import type { Patient, Visit, Appointment } from '../../features/patients/types';
 
 /** Obtiene el user_id del doctor actualmente logueado. */
 async function getCurrentUserId(): Promise<string> {
@@ -12,6 +12,19 @@ async function getCurrentUserId(): Promise<string> {
 // ─── Mappers: DB (snake_case) ↔ App (camelCase) ───────────────────────────────
 
 function dbToVisit(row: any): Visit {
+  let parsedPhotos: string[] = [];
+  if ('photos' in row && row.photos) {
+    if (Array.isArray(row.photos)) {
+      parsedPhotos = row.photos;
+    } else if (typeof row.photos === 'string') {
+      try {
+        parsedPhotos = JSON.parse(row.photos);
+      } catch {
+        parsedPhotos = [];
+      }
+    }
+  }
+
   return {
     id: row.id,
     date: row.date,
@@ -21,10 +34,47 @@ function dbToVisit(row: any): Visit {
     cost: row.cost !== null ? Number(row.cost) : undefined,
     paid: row.paid,
     transactionId: row.transaction_id ?? undefined,
+    photos: parsedPhotos.length > 0 ? parsedPhotos : undefined,
   };
 }
 
 function dbToPatient(row: any, visits: Visit[] = []): Patient {
+  let parsedPhotos: string[] = [];
+  if ('photos' in row && row.photos) {
+    if (Array.isArray(row.photos)) {
+      parsedPhotos = row.photos;
+    } else if (typeof row.photos === 'string') {
+      try {
+        parsedPhotos = JSON.parse(row.photos);
+      } catch {
+        parsedPhotos = [];
+      }
+    }
+  }
+
+  let parsedAppointments: Appointment[] = [];
+  if (row.appointments) {
+    if (Array.isArray(row.appointments)) {
+      parsedAppointments = row.appointments;
+    } else if (typeof row.appointments === 'string') {
+      try {
+        parsedAppointments = JSON.parse(row.appointments);
+      } catch {
+        parsedAppointments = [];
+      }
+    }
+  }
+
+  // Fallback de compatibilidad: si no hay citas en 'appointments' pero sí hay 'next_control_date', crear cita inicial
+  if (parsedAppointments.length === 0 && row.next_control_date) {
+    parsedAppointments = [{
+      id: `legacy-${row.id}`,
+      date: row.next_control_date,
+      reason: row.treatment_type === 'ortodoncia' ? 'Control de ortodoncia' : 'Consulta',
+      status: 'scheduled',
+    }];
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -38,12 +88,14 @@ function dbToPatient(row: any, visits: Visit[] = []): Patient {
     appointmentFrequency: row.appointment_frequency ?? undefined,
     appointmentDay: row.appointment_day ?? undefined,
     lastAppointmentDate: row.last_appointment_date ?? undefined,
+    appointments: parsedAppointments,
     visits,
+    photos: parsedPhotos.length > 0 ? parsedPhotos : undefined,
   };
 }
 
 function patientToDb(patient: Patient, userId: string): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     id: patient.id,
     user_id: userId,
     name: patient.name,
@@ -59,10 +111,22 @@ function patientToDb(patient: Patient, userId: string): Record<string, unknown> 
     appointment_day: patient.appointmentDay ?? null,
     last_appointment_date: patient.lastAppointmentDate ?? null,
   };
+
+  // Solo incluir 'appointments' si contiene elementos para evitar PGRST204 si la columna aún no existe en Supabase
+  if (patient.appointments && patient.appointments.length > 0) {
+    row.appointments = patient.appointments;
+  }
+
+  // Solo incluir 'photos' si contiene elementos para evitar PGRST204 si la columna no existe en Supabase
+  if (patient.photos && patient.photos.length > 0) {
+    row.photos = patient.photos;
+  }
+
+  return row;
 }
 
 function visitToDb(visit: Visit, patientId: string, userId: string): Record<string, unknown> {
-  return {
+  const row: Record<string, unknown> = {
     id: visit.id,
     user_id: userId,
     patient_id: patientId,
@@ -74,6 +138,13 @@ function visitToDb(visit: Visit, patientId: string, userId: string): Record<stri
     paid: visit.paid ?? false,
     transaction_id: visit.transactionId ?? null,
   };
+
+  // Solo incluir 'photos' si contiene elementos para evitar PGRST204 si la columna no existe en Supabase
+  if (visit.photos && visit.photos.length > 0) {
+    row.photos = visit.photos;
+  }
+
+  return row;
 }
 
 // ─── Patients CRUD ────────────────────────────────────────────────────────────
@@ -114,7 +185,14 @@ export async function fetchAllPatients(userId?: string): Promise<Patient[]> {
 
 export async function insertPatient(patient: Patient): Promise<void> {
   const userId = await getCurrentUserId();
-  const { error } = await supabase.from('patients').upsert(patientToDb(patient, userId));
+  const payload = patientToDb(patient, userId);
+  const { error } = await supabase.from('patients').upsert(payload);
+  if (error && (error.code === 'PGRST204' || error.message?.includes('appointments'))) {
+    delete payload.appointments;
+    const retry = await supabase.from('patients').upsert(payload);
+    if (retry.error) throw retry.error;
+    return;
+  }
   if (error) throw error;
 }
 
@@ -133,8 +211,16 @@ export async function updatePatientDb(id: string, updates: Partial<Patient>): Pr
   if (updates.appointmentFrequency !== undefined) dbUpdates.appointment_frequency = updates.appointmentFrequency ?? null;
   if (updates.appointmentDay !== undefined)      dbUpdates.appointment_day = updates.appointmentDay ?? null;
   if (updates.lastAppointmentDate !== undefined) dbUpdates.last_appointment_date = updates.lastAppointmentDate ?? null;
+  if (updates.appointments !== undefined)        dbUpdates.appointments = updates.appointments;
+  if (updates.photos !== undefined && updates.photos.length > 0) dbUpdates.photos = updates.photos;
 
   const { error } = await supabase.from('patients').update(dbUpdates).eq('id', id).eq('user_id', userId);
+  if (error && (error.code === 'PGRST204' || error.message?.includes('appointments'))) {
+    delete dbUpdates.appointments;
+    const retry = await supabase.from('patients').update(dbUpdates).eq('id', id).eq('user_id', userId);
+    if (retry.error) throw retry.error;
+    return;
+  }
   if (error) throw error;
 }
 
@@ -163,6 +249,7 @@ export async function updateVisitDb(visitId: string, updates: Partial<Visit>, pa
   if (updates.cost !== undefined)          dbUpdates.cost = updates.cost ?? null;
   if (updates.paid !== undefined)          dbUpdates.paid = updates.paid;
   if (updates.transactionId !== undefined) dbUpdates.transaction_id = updates.transactionId ?? null;
+  if (updates.photos !== undefined && updates.photos.length > 0) dbUpdates.photos = updates.photos;
 
   const { error } = await supabase.from('visits').update(dbUpdates).eq('id', visitId).eq('user_id', userId);
   if (error) throw error;

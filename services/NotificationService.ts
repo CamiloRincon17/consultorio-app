@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
-import { Alert, Linking, Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Platform } from 'react-native';
 
 export interface NotificationSettings {
     enabled: boolean;
@@ -18,16 +18,44 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 
 const SETTINGS_KEY = 'NOTIFICATION_SETTINGS';
 
-// Configure notification handler
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-    }),
-});
+// Comprobar si estamos en Expo Go en Android (donde expo-notifications fue removido desde SDK 53)
+const isExpoGo =
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+    (Constants as any).appOwnership === 'expo';
+
+const isNotificationsSupported = !(Platform.OS === 'android' && isExpoGo);
+
+let Notifications: typeof import('expo-notifications') | null = null;
+let isHandlerConfigured = false;
+
+async function getNotifications() {
+    if (!isNotificationsSupported) {
+        return null;
+    }
+    if (Notifications) {
+        return Notifications;
+    }
+    try {
+        const mod = await import('expo-notifications');
+        Notifications = mod;
+        if (!isHandlerConfigured && mod.setNotificationHandler) {
+            mod.setNotificationHandler({
+                handleNotification: async () => ({
+                    shouldShowAlert: true,
+                    shouldPlaySound: true,
+                    shouldSetBadge: true,
+                    shouldShowBanner: true,
+                    shouldShowList: true,
+                }),
+            });
+            isHandlerConfigured = true;
+        }
+        return Notifications;
+    } catch (error) {
+        console.warn('⚠️ No se pudo inicializar expo-notifications:', error);
+        return null;
+    }
+}
 
 export class NotificationService {
     /**
@@ -35,13 +63,19 @@ export class NotificationService {
      */
     static async requestPermissions(): Promise<{ granted: boolean; status: string }> {
         try {
-            const { status: existingStatus } = await Notifications.getPermissionsAsync();
+            const notif = await getNotifications();
+            if (!notif) {
+                console.log('ℹ️ Notificaciones locales no disponibles en Expo Go (Android SDK 53+). Requiere Development Build para notificaciones nativas.');
+                return { granted: false, status: 'unsupported' };
+            }
+
+            const { status: existingStatus } = await notif.getPermissionsAsync();
             console.log('📱 Current permission status:', existingStatus);
             let finalStatus = existingStatus;
 
             if (existingStatus !== 'granted') {
                 console.log('⚠️ Requesting notification permissions...');
-                const { status } = await Notifications.requestPermissionsAsync();
+                const { status } = await notif.requestPermissionsAsync();
                 finalStatus = status;
                 console.log('📱 New permission status:', finalStatus);
             }
@@ -51,35 +85,26 @@ export class NotificationService {
                 return { granted: false, status: finalStatus };
             }
 
-            // Check exact alarm permission for Android 12+
-            if (Platform.OS === 'android' && Platform.Version >= 31) {
-                try {
-                    // Check if we can schedule exact alarms
-                    console.log('🔍 Checking exact alarm permissions (Android 12+)...');
-
-                    // Note: There's no direct API to check SCHEDULE_EXACT_ALARM in Expo
-                    // We'll try to schedule and catch errors
-                    console.log('⚠️ Android 12+ detected. If notifications don\'t work, enable "Alarms & reminders" permission in system settings.');
-                } catch (error) {
-                    console.error('⚠️ Exact alarm check failed:', error);
-                }
-            }
-
             // Configure notification channel for Android
             if (Platform.OS === 'android') {
-                console.log('🔧 Configuring Android notification channel...');
-                await Notifications.setNotificationChannelAsync('appointments', {
-                    name: 'Recordatorios de Citas',
-                    description: 'Notificaciones para recordar citas programadas',
-                    importance: Notifications.AndroidImportance.MAX,
-                    vibrationPattern: [0, 250, 250, 250],
-                    lightColor: '#4A90E2',
-                    sound: 'default',
-                    enableVibrate: true,
-                    showBadge: true,
-                    enableLights: true,
-                });
-                console.log('✅ Android notification channel configured');
+                try {
+                    console.log('🔧 Configuring Android notification channel...');
+                    await notif.setNotificationChannelAsync('appointments', {
+                        name: 'Recordatorios de Citas',
+                        description: 'Notificaciones para recordar citas programadas',
+                        importance: notif.AndroidImportance.MAX,
+                        vibrationPattern: [0, 250, 250, 250],
+                        lightColor: '#4A90E2',
+                        // NOTE: do NOT pass sound: 'default' — causes NullPointerException
+                        // in expo-notifications 58.x on Android. Leave undefined for default.
+                        enableVibrate: true,
+                        showBadge: true,
+                        enableLights: true,
+                    });
+                    console.log('✅ Android notification channel configured');
+                } catch (channelError) {
+                    console.warn('⚠️ Could not configure notification channel (non-fatal):', channelError);
+                }
             }
 
             console.log('✅ Notification permissions granted');
@@ -120,10 +145,10 @@ export class NotificationService {
     }
 
     /**
-     * Create a unique identifier for a patient's notification
+     * Create a unique identifier for a patient's appointment notification
      */
-    private static getNotificationId(patientId: string): string {
-        return `appointment_${patientId}`;
+    private static getNotificationId(patientId: string, appointmentId?: string): string {
+        return appointmentId ? `appointment_${patientId}_${appointmentId}` : `appointment_${patientId}`;
     }
 
     /**
@@ -132,35 +157,32 @@ export class NotificationService {
     static async scheduleAppointmentNotification(
         patientId: string,
         patientName: string,
-        appointmentDate: Date
+        appointmentDate: Date,
+        appointmentId?: string,
+        reason?: string
     ): Promise<boolean> {
         try {
+            const notif = await getNotifications();
+            if (!notif) return false;
+
             const settings = await this.getSettings();
 
-            // Check if notifications are enabled
             if (!settings.enabled) {
                 console.log('⏸️ Notifications disabled, skipping');
                 return false;
             }
 
-            // Check permissions
             const permissionResult = await this.requestPermissions();
             if (!permissionResult.granted) {
                 console.error('❌ Cannot schedule notification - permissions not granted:', permissionResult.status);
-
-                // Eliminado Alert.alert para no bloquear la UI ni molestar al usuario si no da permisos.
                 return false;
             }
 
-            // Cancel existing notification for this patient
-            await this.cancelAppointmentNotification(patientId);
+            await this.cancelAppointmentNotification(patientId, appointmentId);
 
-            // Calculate trigger date - keep the appointment time, just change the date
             const triggerDate = new Date(appointmentDate);
             triggerDate.setDate(triggerDate.getDate() - settings.daysInAdvance);
-            // Don't change the time - use the appointment's original time
 
-            // Don't schedule if the trigger date is in the past
             const now = new Date();
             if (triggerDate <= now) {
                 console.log(`⚠️ Trigger date ${triggerDate.toLocaleString('es-ES')} is in the past for ${patientName}, skipping notification`);
@@ -172,13 +194,7 @@ export class NotificationService {
                 appointmentDate: appointmentDate.toLocaleString('es-ES'),
                 triggerDate: triggerDate.toLocaleString('es-ES'),
                 daysInAdvance: settings.daysInAdvance,
-            });
-
-            // Format the appointment date for the notification
-            const formattedDate = appointmentDate.toLocaleDateString('es-ES', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long'
+                appointmentId,
             });
 
             const formattedTime = appointmentDate.toLocaleTimeString('es-ES', {
@@ -186,68 +202,66 @@ export class NotificationService {
                 minute: '2-digit'
             });
 
-            // Determine how many days in advance
             let advanceText = 'mañana';
             if (settings.daysInAdvance === 2) advanceText = 'pasado mañana';
             else if (settings.daysInAdvance === 3) advanceText = 'en 3 días';
             else if (settings.daysInAdvance === 7) advanceText = 'la próxima semana';
 
-            // Schedule the notification
-            const identifier = this.getNotificationId(patientId);
-            const notificationId = await Notifications.scheduleNotificationAsync({
+            const detailText = reason ? ` (${reason})` : '';
+            const identifier = this.getNotificationId(patientId, appointmentId);
+
+            await notif.scheduleNotificationAsync({
                 content: {
                     title: '🦷 Recordatorio de Cita',
-                    body: `${advanceText.charAt(0).toUpperCase() + advanceText.slice(1)} tienes cita con ${patientName} a las ${formattedTime}`,
+                    body: `${advanceText.charAt(0).toUpperCase() + advanceText.slice(1)} tienes cita con ${patientName}${detailText} a las ${formattedTime}`,
                     data: {
                         patientId,
                         patientName,
+                        appointmentId,
                         appointmentDate: appointmentDate.toISOString(),
                     },
                     sound: 'default',
-                    priority: Notifications.AndroidNotificationPriority.MAX,
+                    priority: notif.AndroidNotificationPriority.MAX,
                     vibrate: [0, 250, 250, 250],
                 },
                 trigger: {
-                    type: Notifications.SchedulableTriggerInputTypes.DATE,
+                    type: notif.SchedulableTriggerInputTypes.DATE,
                     channelId: Platform.OS === 'android' ? 'appointments' : undefined,
                     date: triggerDate,
-                } as Notifications.DateTriggerInput,
+                } as any,
                 identifier,
             });
 
-            // Verify the notification was actually scheduled
-            const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-            const wasScheduled = scheduled.some(n => n.identifier === identifier);
-
-            if (!wasScheduled) {
-                console.error('❌ Notification was not found in scheduled list after creation');
-                return false;
-            }
-
             console.log(`✅ Scheduled notification for ${patientName} at ${triggerDate.toLocaleString('es-ES')}`);
-            console.log(`   Notification ID: ${notificationId}`);
-            console.log(`   Identifier: ${identifier}`);
-            console.log(`   Total scheduled: ${scheduled.length}`);
             return true;
-
         } catch (error) {
             console.error('❌ Error scheduling notification:', error);
-            if (error instanceof Error) {
-                console.error('   Error message:', error.message);
-                console.error('   Error stack:', error.stack);
-            }
             return false;
         }
     }
 
     /**
-     * Cancel a patient's appointment notification
+     * Cancel a patient's appointment notification (specific appointment or all for patient)
      */
-    static async cancelAppointmentNotification(patientId: string): Promise<void> {
+    static async cancelAppointmentNotification(patientId: string, appointmentId?: string): Promise<void> {
         try {
-            const identifier = this.getNotificationId(patientId);
-            await Notifications.cancelScheduledNotificationAsync(identifier);
-            console.log(`🗑️ Cancelled notification for patient ${patientId}`);
+            const notif = await getNotifications();
+            if (!notif) return;
+
+            if (appointmentId) {
+                const identifier = this.getNotificationId(patientId, appointmentId);
+                await notif.cancelScheduledNotificationAsync(identifier);
+                console.log(`🗑️ Cancelled notification for patient ${patientId}, appointment ${appointmentId}`);
+            } else {
+                await notif.cancelScheduledNotificationAsync(this.getNotificationId(patientId));
+                const allScheduled = await notif.getAllScheduledNotificationsAsync();
+                for (const n of allScheduled) {
+                    if (n.identifier.startsWith(`appointment_${patientId}`)) {
+                        await notif.cancelScheduledNotificationAsync(n.identifier);
+                    }
+                }
+                console.log(`🗑️ Cancelled all notifications for patient ${patientId}`);
+            }
         } catch (error) {
             console.error('❌ Error cancelling notification:', error);
         }
@@ -258,7 +272,9 @@ export class NotificationService {
      */
     static async cancelAllNotifications(): Promise<void> {
         try {
-            await Notifications.cancelAllScheduledNotificationsAsync();
+            const notif = await getNotifications();
+            if (!notif) return;
+            await notif.cancelAllScheduledNotificationsAsync();
             console.log('🗑️ Cancelled all notifications');
         } catch (error) {
             console.error('❌ Error cancelling all notifications:', error);
@@ -268,11 +284,11 @@ export class NotificationService {
     /**
      * Get all scheduled notifications
      */
-    static async getAllScheduledNotifications(): Promise<Notifications.NotificationRequest[]> {
+    static async getAllScheduledNotifications(): Promise<any[]> {
         try {
-            const notifications = await Notifications.getAllScheduledNotificationsAsync();
-            console.log(`📋 Found ${notifications.length} scheduled notifications`);
-            return notifications;
+            const notif = await getNotifications();
+            if (!notif) return [];
+            return await notif.getAllScheduledNotificationsAsync();
         } catch (error) {
             console.error('❌ Error getting scheduled notifications:', error);
             return [];
@@ -283,18 +299,32 @@ export class NotificationService {
      * Reschedule all notifications for all patients with appointments
      */
     static async rescheduleAllNotifications(
-        patients: Array<{ id: string; name: string; nextControlDate?: string }>
+        patients: Array<{ id: string; name: string; nextControlDate?: string; appointments?: Array<{ id: string; date: string; reason?: string }> }>
     ): Promise<void> {
         try {
-            console.log('🔄 Rescheduling all notifications...');
+            const notif = await getNotifications();
+            if (!notif) return;
 
-            // Cancel all existing notifications first
+            console.log('🔄 Rescheduling all notifications...');
             await this.cancelAllNotifications();
 
-            // Schedule new ones for each patient with a next control date
             let scheduledCount = 0;
             for (const patient of patients) {
-                if (patient.nextControlDate) {
+                if (patient.appointments && patient.appointments.length > 0) {
+                    for (const appt of patient.appointments) {
+                        const apptDate = new Date(appt.date);
+                        if (apptDate > new Date()) {
+                            const success = await this.scheduleAppointmentNotification(
+                                patient.id,
+                                patient.name,
+                                apptDate,
+                                appt.id,
+                                appt.reason
+                            );
+                            if (success) scheduledCount++;
+                        }
+                    }
+                } else if (patient.nextControlDate) {
                     const success = await this.scheduleAppointmentNotification(
                         patient.id,
                         patient.name,

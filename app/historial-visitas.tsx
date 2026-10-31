@@ -13,7 +13,7 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
 import { Visit } from "../features/patients/types";
 import { usePatientsStore } from "../features/patients/store";
 import { useFinanceStore } from "../features/finance/store";
@@ -21,6 +21,7 @@ import { formatCOPShort, formatInputCOP, parseInputCOP } from "../shared/utils/f
 import { toLocalDateString } from "../shared/utils/dateUtils";
 import { ConfirmModal } from "../shared/components/ConfirmModal";
 import { useDialog } from "../shared/context/DialogContext";
+import { PhotoGallery } from "../shared/components";
 
 interface VisitWithPatient extends Visit {
     patientName?: string;
@@ -29,10 +30,14 @@ interface VisitWithPatient extends Visit {
 
 export default function HistorialVisitasScreen() {
     const router = useRouter();
-    const { id } = useLocalSearchParams();
-    const patientId = Array.isArray(id) ? id[0] : id;
+    const params = useLocalSearchParams<{ id?: string; patientId?: string; openAdd?: string }>();
+    const rawPatientId = params.id || params.patientId;
+    const patientId = Array.isArray(rawPatientId) ? rawPatientId[0] : rawPatientId;
+    const openAdd = params.openAdd;
     const isGlobal = !patientId;
     const dialog = useDialog();
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
 
     const patients = usePatientsStore((s) => s.patients);
     const addVisit = usePatientsStore((s) => s.addVisit);
@@ -56,7 +61,7 @@ export default function HistorialVisitasScreen() {
         ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    const [modalVisible, setModalVisible] = useState(false);
+    const [modalVisible, setModalVisible] = useState(() => openAdd === 'true' && !isGlobal);
     const [editingVisit, setEditingVisit] = useState<VisitWithPatient | null>(null);
     const [visitToDelete, setVisitToDelete] = useState<VisitWithPatient | null>(null);
 
@@ -67,23 +72,25 @@ export default function HistorialVisitasScreen() {
     const [notes, setNotes] = useState("");
     const [cost, setCost] = useState("");
     const [paid, setPaid] = useState(false);
+    const [photos, setPhotos] = useState<string[]>([]);
+    const [activeTab, setActiveTab] = useState<'visitas' | 'galeria'>('visitas');
 
-    // If looking for a specific patient and not found, show error
-    if (patientId && !patient) {
-        return (
-            <SafeAreaView style={styles.container}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <Ionicons name="arrow-back" size={24} color={Colors.text} />
-                    </TouchableOpacity>
-                    <Text style={styles.title}>Error</Text>
-                </View>
-                <View style={styles.emptyContainer}>
-                    <Text style={styles.errorText}>Paciente no encontrado</Text>
-                </View>
-            </SafeAreaView>
+    // Collect all patient photos with visit info across all visits
+    const patientPhotosWithInfo = useMemo(() => {
+        return visits.flatMap(v =>
+            (v.photos || []).map(url => ({
+                url,
+                visitId: v.id,
+                visitDate: new Date(v.date).toLocaleDateString("es-ES", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                }),
+                visitReason: v.reason,
+                visitTreatment: v.treatment,
+            }))
         );
-    }
+    }, [visits]);
 
     const resetForm = () => {
         setDate(toLocalDateString(new Date()));
@@ -92,7 +99,16 @@ export default function HistorialVisitasScreen() {
         setNotes("");
         setCost("");
         setPaid(false);
+        setPhotos([]);
         setEditingVisit(null);
+    };
+
+    const closeModal = () => {
+        setModalVisible(false);
+        resetForm();
+        if (openAdd) {
+            router.setParams({ openAdd: undefined });
+        }
     };
 
     const openAddModal = () => {
@@ -104,6 +120,23 @@ export default function HistorialVisitasScreen() {
         setModalVisible(true);
     };
 
+    // If looking for a specific patient and not found, show error
+    if (patientId && !patient) {
+        return (
+            <SafeAreaView style={styles.container}>
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={24} color={colors.text} />
+                    </TouchableOpacity>
+                    <Text style={styles.title}>Error</Text>
+                </View>
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.errorText}>Paciente no encontrado</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
     const openEditModal = (visit: VisitWithPatient) => {
         setEditingVisit(visit);
         setDate(visit.date);
@@ -112,6 +145,7 @@ export default function HistorialVisitasScreen() {
         setNotes(visit.notes || "");
         setCost(formatInputCOP(visit.cost ?? 0));
         setPaid(visit.paid || false);
+        setPhotos(visit.photos || []);
         setModalVisible(true);
     };
 
@@ -128,6 +162,7 @@ export default function HistorialVisitasScreen() {
             notes: notes || undefined,
             cost: cost ? parseInputCOP(cost) : undefined,
             paid,
+            photos: photos.length > 0 ? photos : undefined,
         };
 
         if (editingVisit) {
@@ -142,8 +177,7 @@ export default function HistorialVisitasScreen() {
             dialog.alert("Éxito", "Visita agregada correctamente", "success");
         }
 
-        setModalVisible(false);
-        resetForm();
+        closeModal();
     };
 
     const handleDelete = (visit: VisitWithPatient) => {
@@ -184,27 +218,27 @@ export default function HistorialVisitasScreen() {
                 {/* Patient Name Header if Global */}
                 {isGlobal && item.patientName && (
                     <View style={styles.patientHeader}>
-                        <Ionicons name="person-circle-outline" size={20} color={Colors.primary} />
+                        <Ionicons name="person-circle-outline" size={20} color={colors.primary} />
                         <Text style={styles.patientNameText}>{item.patientName}</Text>
                     </View>
                 )}
 
                 <View style={styles.visitHeader}>
                     <View style={styles.dateContainer}>
-                        <Ionicons name="calendar" size={20} color={Colors.primary} />
+                        <Ionicons name="calendar" size={20} color={colors.primary} />
                         <Text style={styles.visitDate}>{formattedDate}</Text>
                     </View>
                     <View style={styles.visitActions}>
                         {/* Badge de estado de sincronización */}
                         {isPending && (
                             <View style={styles.syncBadgePending}>
-                                <ActivityIndicator size={10} color="#FF8C00" />
+                                <ActivityIndicator size={10} color={colors.warning} />
                                 <Text style={styles.syncBadgePendingText}>Guardando...</Text>
                             </View>
                         )}
                         {isSynced && (
                             <View style={styles.syncBadgeSynced}>
-                                <Ionicons name="cloud-done-outline" size={12} color="#2E7D32" />
+                                <Ionicons name="cloud-done-outline" size={12} color={colors.success} />
                                 <Text style={styles.syncBadgeSyncedText}>En la nube</Text>
                             </View>
                         )}
@@ -215,14 +249,14 @@ export default function HistorialVisitasScreen() {
                             <Ionicons
                                 name="create-outline"
                                 size={22}
-                                color={Colors.primary}
+                                color={colors.primary}
                             />
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => handleDelete(item)}
                             style={styles.iconButton}
                         >
-                            <Ionicons name="trash-outline" size={22} color={Colors.danger} />
+                            <Ionicons name="trash-outline" size={22} color={colors.danger} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -230,7 +264,7 @@ export default function HistorialVisitasScreen() {
                 {/* Chip de última modificación */}
                 {lastModifiedLabel && (
                     <View style={styles.modifiedChip}>
-                        <Ionicons name="pencil-outline" size={11} color="#6B7280" />
+                        <Ionicons name="pencil-outline" size={11} color={colors.textSecondary} />
                         <Text style={styles.modifiedChipText}>Modificado: {lastModifiedLabel}</Text>
                     </View>
                 )}
@@ -240,7 +274,7 @@ export default function HistorialVisitasScreen() {
                         <Ionicons
                             name="medical-outline"
                             size={16}
-                            color={Colors.textSecondary}
+                            color={colors.textSecondary}
                         />
                         <Text style={styles.detailText}>
                             <Text style={styles.detailLabel}>Motivo: </Text>
@@ -254,7 +288,7 @@ export default function HistorialVisitasScreen() {
                         <Ionicons
                             name="fitness-outline"
                             size={16}
-                            color={Colors.textSecondary}
+                            color={colors.textSecondary}
                         />
                         <Text style={styles.detailText}>
                             <Text style={styles.detailLabel}>Tratamiento: </Text>
@@ -268,7 +302,7 @@ export default function HistorialVisitasScreen() {
                         <Ionicons
                             name="document-text-outline"
                             size={16}
-                            color={Colors.textSecondary}
+                            color={colors.textSecondary}
                         />
                         <Text style={styles.detailText}>
                             <Text style={styles.detailLabel}>Notas: </Text>
@@ -291,7 +325,7 @@ export default function HistorialVisitasScreen() {
                                 <Ionicons
                                     name="close-circle-outline"
                                     size={16}
-                                    color={Colors.danger}
+                                    color={colors.danger}
                                 />
                                 <Text style={styles.unpaidText}>Pendiente</Text>
                             </View>
@@ -310,7 +344,7 @@ export default function HistorialVisitasScreen() {
                     onPress={() => router.back()}
                     style={styles.backButton}
                 >
-                    <Ionicons name="arrow-back" size={24} color={Colors.text} />
+                    <Ionicons name="arrow-back" size={24} color={colors.text} />
                 </TouchableOpacity>
                 <View style={styles.headerContent}>
                     <Text style={styles.title}>
@@ -325,14 +359,14 @@ export default function HistorialVisitasScreen() {
             {/* Stats Summary */}
             <View style={styles.statsContainer}>
                 <View style={styles.statBox}>
-                    <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
+                    <Ionicons name="calendar-outline" size={24} color={colors.primary} />
                     <Text style={styles.statValue}>{visits.length}</Text>
                     <Text style={styles.statLabel}>
                         {visits.length === 1 ? "Visita" : "Visitas"}
                     </Text>
                 </View>
                 <View style={styles.statBox}>
-                    <Ionicons name="cash-outline" size={24} color={Colors.success} />
+                    <Ionicons name="cash-outline" size={24} color={colors.success} />
                     <Text style={styles.statValue}>
                         {formatCOPShort(
                             visits.reduce((sum, v) => sum + (v.cost || 0), 0),
@@ -344,7 +378,7 @@ export default function HistorialVisitasScreen() {
                     <Ionicons
                         name="checkmark-done-outline"
                         size={24}
-                        color={Colors.success}
+                        color={colors.success}
                     />
                     <Text style={styles.statValue}>
                         {visits.filter((v) => v.paid).length}
@@ -353,28 +387,77 @@ export default function HistorialVisitasScreen() {
                 </View>
             </View>
 
-            {/* Visits List */}
-            <FlatList
-                data={visits}
-                keyExtractor={(item) => item.id}
-                renderItem={renderVisitCard}
-                contentContainerStyle={styles.listContent}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Ionicons
-                            name="folder-open-outline"
-                            size={64}
-                            color={Colors.border}
+            {/* Pestañas: Visitas | Galería */}
+            <View style={styles.tabContainer}>
+                <TouchableOpacity
+                    style={[styles.tabButton, activeTab === 'visitas' && styles.activeTabButton]}
+                    onPress={() => setActiveTab('visitas')}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons
+                        name="list-outline"
+                        size={18}
+                        color={activeTab === 'visitas' ? colors.primary : colors.textSecondary}
+                    />
+                    <Text style={[styles.tabText, activeTab === 'visitas' && styles.activeTabText]}>
+                        Visitas ({visits.length})
+                    </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.tabButton, activeTab === 'galeria' && styles.activeTabButton]}
+                    onPress={() => setActiveTab('galeria')}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons
+                        name="images-outline"
+                        size={18}
+                        color={activeTab === 'galeria' ? colors.primary : colors.textSecondary}
+                    />
+                    <Text style={[styles.tabText, activeTab === 'galeria' && styles.activeTabText]}>
+                        Galería ({patientPhotosWithInfo.length})
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Tab Content */}
+            {activeTab === 'visitas' ? (
+                <FlatList
+                    data={visits}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderVisitCard}
+                    contentContainerStyle={styles.listContent}
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <Ionicons
+                                name="folder-open-outline"
+                                size={64}
+                                color={colors.border}
+                            />
+                            <Text style={styles.emptyText}>No hay visitas registradas</Text>
+                            <Text style={styles.emptySubtext}>
+                                {isGlobal
+                                    ? "Las visitas de los pacientes aparecerán aquí"
+                                    : "Presiona el botón + para agregar una visita"}
+                            </Text>
+                        </View>
+                    }
+                />
+            ) : (
+                <ScrollView contentContainerStyle={styles.galleryTabContent}>
+                    <View style={styles.galleryCard}>
+                        <PhotoGallery
+                            photosWithInfo={patientPhotosWithInfo}
+                            readOnly={isGlobal}
+                            onAddPhotoInVisit={() => openAddModal()}
+                            patientId={patientId || ''}
+                            title="Galería Fotográfica del Paciente"
+                            iconName="images-outline"
+                            iconSize={20}
                         />
-                        <Text style={styles.emptyText}>No hay visitas registradas</Text>
-                        <Text style={styles.emptySubtext}>
-                            {isGlobal
-                                ? "Las visitas de los pacientes aparecerán aquí"
-                                : "Presiona el botón + para agregar una visita"}
-                        </Text>
                     </View>
-                }
-            />
+                </ScrollView>
+            )}
 
             {/* Add Button - Only visible for specific patient */}
             {!isGlobal && (
@@ -388,10 +471,7 @@ export default function HistorialVisitasScreen() {
                 visible={modalVisible}
                 animationType="slide"
                 transparent={true}
-                onRequestClose={() => {
-                    setModalVisible(false);
-                    resetForm();
-                }}
+                onRequestClose={closeModal}
             >
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -399,13 +479,8 @@ export default function HistorialVisitasScreen() {
                             <Text style={styles.modalTitle}>
                                 {editingVisit ? "Editar Visita" : "Nueva Visita"}
                             </Text>
-                            <TouchableOpacity
-                                onPress={() => {
-                                    setModalVisible(false);
-                                    resetForm();
-                                }}
-                            >
-                                <Ionicons name="close" size={28} color={Colors.text} />
+                            <TouchableOpacity onPress={closeModal}>
+                                <Ionicons name="close" size={28} color={colors.text} />
                             </TouchableOpacity>
                         </View>
 
@@ -485,7 +560,7 @@ export default function HistorialVisitasScreen() {
                                     <Ionicons
                                         name={paid ? "checkmark-circle" : "close-circle-outline"}
                                         size={24}
-                                        color={paid ? "white" : Colors.textSecondary}
+                                        color={paid ? "white" : colors.textSecondary}
                                     />
                                     <Text
                                         style={[
@@ -496,6 +571,17 @@ export default function HistorialVisitasScreen() {
                                         {paid ? "Pagado" : "Pendiente"}
                                     </Text>
                                 </TouchableOpacity>
+                            </View>
+
+                            {/* Fotografías del procedimiento */}
+                            <View style={styles.inputGroup}>
+                                <PhotoGallery
+                                    photos={photos}
+                                    onAddPhoto={(newUrl) => setPhotos((prev) => [...prev, newUrl])}
+                                    onDeletePhoto={(delUrl) => setPhotos((prev) => prev.filter((p) => p !== delUrl))}
+                                    patientId={editingVisit?.patientId || patientId}
+                                    visitId={editingVisit?.id}
+                                />
                             </View>
                         </ScrollView>
 
@@ -533,18 +619,19 @@ export default function HistorialVisitasScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+    StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     header: {
         flexDirection: "row",
         alignItems: "center",
         padding: 16,
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
+        borderBottomColor: colors.border,
     },
     backButton: {
         marginRight: 12,
@@ -555,18 +642,18 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 20,
         fontWeight: "bold",
-        color: Colors.text,
+        color: colors.text,
     },
     subtitle: {
         fontSize: 14,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 2,
     },
     statsContainer: {
         flexDirection: "row",
         justifyContent: "space-around",
         padding: 16,
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         marginTop: 8,
     },
     statBox: {
@@ -575,12 +662,12 @@ const styles = StyleSheet.create({
     statValue: {
         fontSize: 20,
         fontWeight: "bold",
-        color: Colors.text,
+        color: colors.text,
         marginTop: 8,
     },
     statLabel: {
         fontSize: 12,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 4,
     },
     listContent: {
@@ -588,7 +675,7 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     visitCard: {
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         borderRadius: 12,
         padding: 16,
         shadowColor: "#000",
@@ -604,12 +691,12 @@ const styles = StyleSheet.create({
         marginBottom: 8,
         paddingBottom: 8,
         borderBottomWidth: 1,
-        borderBottomColor: Colors.border + '40',
+        borderBottomColor: colors.border + '40',
     },
     patientNameText: {
         fontSize: 14,
         fontWeight: "bold",
-        color: Colors.primary,
+        color: colors.primary,
     },
     visitHeader: {
         flexDirection: "row",
@@ -625,7 +712,7 @@ const styles = StyleSheet.create({
     visitDate: {
         fontSize: 16,
         fontWeight: "600",
-        color: Colors.text,
+        color: colors.text,
         textTransform: "capitalize",
     },
     visitActions: {
@@ -644,11 +731,11 @@ const styles = StyleSheet.create({
     detailText: {
         flex: 1,
         fontSize: 14,
-        color: Colors.text,
+        color: colors.text,
     },
     detailLabel: {
         fontWeight: "600",
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
     },
     costContainer: {
         flexDirection: "row",
@@ -656,25 +743,25 @@ const styles = StyleSheet.create({
         marginTop: 8,
         paddingTop: 12,
         borderTopWidth: 1,
-        borderTopColor: Colors.border,
+        borderTopColor: colors.border,
         gap: 8,
     },
     costLabel: {
         fontSize: 14,
         fontWeight: "600",
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
     },
     costValue: {
         fontSize: 16,
         fontWeight: "bold",
-        color: Colors.success,
+        color: colors.success,
         flex: 1,
     },
     paidBadge: {
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        backgroundColor: Colors.success,
+        backgroundColor: colors.success,
         paddingHorizontal: 10,
         paddingVertical: 4,
         borderRadius: 12,
@@ -688,15 +775,15 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
         paddingHorizontal: 10,
         paddingVertical: 4,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.danger,
+        borderColor: colors.danger,
     },
     unpaidText: {
-        color: Colors.danger,
+        color: colors.danger,
         fontSize: 12,
         fontWeight: "600",
     },
@@ -708,12 +795,12 @@ const styles = StyleSheet.create({
     emptyText: {
         fontSize: 18,
         fontWeight: "600",
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 16,
     },
     emptySubtext: {
         fontSize: 14,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 8,
         textAlign: "center",
     },
@@ -724,7 +811,7 @@ const styles = StyleSheet.create({
         width: 60,
         height: 60,
         borderRadius: 30,
-        backgroundColor: Colors.primary,
+        backgroundColor: colors.primary,
         alignItems: "center",
         justifyContent: "center",
         shadowColor: "#000",
@@ -735,7 +822,7 @@ const styles = StyleSheet.create({
     },
     errorText: {
         fontSize: 16,
-        color: Colors.danger,
+        color: colors.danger,
         textAlign: "center",
         marginTop: 32,
     },
@@ -746,7 +833,7 @@ const styles = StyleSheet.create({
         justifyContent: "flex-end",
     },
     modalContent: {
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         maxHeight: "90%",
@@ -757,12 +844,12 @@ const styles = StyleSheet.create({
         alignItems: "center",
         padding: 20,
         borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
+        borderBottomColor: colors.border,
     },
     modalTitle: {
         fontSize: 20,
         fontWeight: "bold",
-        color: Colors.text,
+        color: colors.text,
     },
     modalBody: {
         padding: 20,
@@ -773,20 +860,20 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 14,
         fontWeight: "600",
-        color: Colors.text,
+        color: colors.text,
         marginBottom: 8,
     },
     required: {
-        color: Colors.danger,
+        color: colors.danger,
     },
     input: {
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
-        color: Colors.text,
-        backgroundColor: "white",
+        color: colors.text,
+        backgroundColor: colors.card,
     },
     textArea: {
         height: 80,
@@ -797,17 +884,17 @@ const styles = StyleSheet.create({
         alignItems: "center",
         padding: 12,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
         borderRadius: 8,
         gap: 8,
     },
     toggleButtonActive: {
-        backgroundColor: Colors.success,
-        borderColor: Colors.success,
+        backgroundColor: colors.success,
+        borderColor: colors.success,
     },
     toggleText: {
         fontSize: 16,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         fontWeight: "500",
     },
     toggleTextActive: {
@@ -818,7 +905,7 @@ const styles = StyleSheet.create({
         padding: 20,
         gap: 12,
         borderTopWidth: 1,
-        borderTopColor: Colors.border,
+        borderTopColor: colors.border,
     },
     button: {
         flex: 1,
@@ -827,15 +914,15 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     cancelButton: {
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     cancelButtonText: {
         fontSize: 16,
         fontWeight: "600",
-        color: Colors.text,
+        color: colors.text,
     },
     saveButton: {
-        backgroundColor: Colors.primary,
+        backgroundColor: colors.primary,
     },
     saveButtonText: {
         fontSize: 16,
@@ -847,33 +934,33 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        backgroundColor: "#FFF3E0",
+        backgroundColor: colors.surface,
         paddingHorizontal: 7,
         paddingVertical: 3,
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: "#FF8C00",
+        borderColor: colors.warning,
     },
     syncBadgePendingText: {
         fontSize: 10,
         fontWeight: "700",
-        color: "#FF8C00",
+        color: colors.warning,
     },
     syncBadgeSynced: {
         flexDirection: "row",
         alignItems: "center",
         gap: 3,
-        backgroundColor: "#E8F5E9",
+        backgroundColor: colors.surface,
         paddingHorizontal: 7,
         paddingVertical: 3,
         borderRadius: 10,
         borderWidth: 1,
-        borderColor: "#A5D6A7",
+        borderColor: colors.success,
     },
     syncBadgeSyncedText: {
         fontSize: 10,
         fontWeight: "700",
-        color: "#2E7D32",
+        color: colors.success,
     },
     modifiedChip: {
         flexDirection: "row",
@@ -881,14 +968,60 @@ const styles = StyleSheet.create({
         gap: 4,
         marginBottom: 10,
         alignSelf: "flex-start",
-        backgroundColor: "#F3F4F6",
+        backgroundColor: colors.surface,
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 8,
     },
     modifiedChipText: {
         fontSize: 11,
-        color: "#6B7280",
+        color: colors.textSecondary,
         fontStyle: "italic",
+    },
+    tabContainer: {
+        flexDirection: "row",
+        backgroundColor: colors.card,
+        marginHorizontal: 16,
+        marginTop: 12,
+        borderRadius: 12,
+        padding: 4,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    tabButton: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        paddingVertical: 10,
+        borderRadius: 8,
+    },
+    activeTabButton: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.primary + "40",
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: colors.textSecondary,
+    },
+    activeTabText: {
+        color: colors.primary,
+        fontWeight: "700",
+    },
+    galleryTabContent: {
+        padding: 16,
+    },
+    galleryCard: {
+        backgroundColor: colors.card,
+        borderRadius: 16,
+        padding: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 2,
     },
 });

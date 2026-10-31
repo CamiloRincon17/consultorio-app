@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
-import { Colors } from '../constants/Colors';
+import { useColors } from '../theme';
 
 interface PrimaryButtonProps {
   label: string;
@@ -36,10 +36,11 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
   variant = 'primary',
   style,
 }) => {
+  const colors = useColors();
   const backgroundColor = {
-    primary: Colors.primary,
-    danger: Colors.danger,
-    success: Colors.success,
+    primary: colors.primary,
+    danger: colors.danger,
+    success: colors.success,
   }[variant];
 
   return (

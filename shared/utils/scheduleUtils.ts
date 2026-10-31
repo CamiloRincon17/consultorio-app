@@ -94,37 +94,46 @@ export function findPatientConflictForSpecialistBlock(
   const blockEnd = parseTimeToMinutes(blockData.endTime);
 
   for (const patient of patients) {
-    if (!patient.nextControlDate) continue;
-
-    const controlDateObj = new Date(patient.nextControlDate);
-    const patientDateStr = toLocalDateString(controlDateObj);
-    const patientDayOfWeek = controlDateObj.getDay();
-
-    let applies = false;
-    if (blockData.isRecurring) {
-      if (blockData.recurringDays && blockData.recurringDays.includes(patientDayOfWeek)) {
-        // Solo aplica si la cita del paciente es a partir de hoy
-        if (controlDateObj >= new Date(new Date().setHours(0, 0, 0, 0))) {
-          applies = true;
-        }
-      }
-    } else if (blockData.date && blockData.date === patientDateStr) {
-      applies = true;
+    const datesToCheck: string[] = [];
+    if (patient.appointments && patient.appointments.length > 0) {
+      patient.appointments.forEach((a) => {
+        if (a.date && a.status !== 'cancelled') datesToCheck.push(a.date);
+      });
+    } else if (patient.nextControlDate) {
+      datesToCheck.push(patient.nextControlDate);
     }
 
-    if (applies) {
-      const patientMinutes = dateToMinutes(controlDateObj);
-      if (patientMinutes >= blockStart && patientMinutes < blockEnd) {
-        const timeFormatted = controlDateObj.toLocaleTimeString("en-US", {
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        });
-        return {
-          patientName: patient.name,
-          appointmentTime: timeFormatted,
-          dateLabel: patientDateStr,
-        };
+    for (const dateStr of datesToCheck) {
+      const controlDateObj = new Date(dateStr);
+      const patientDateStr = toLocalDateString(controlDateObj);
+      const patientDayOfWeek = controlDateObj.getDay();
+
+      let applies = false;
+      if (blockData.isRecurring) {
+        if (blockData.recurringDays && blockData.recurringDays.includes(patientDayOfWeek)) {
+          // Solo aplica si la cita del paciente es a partir de hoy
+          if (controlDateObj >= new Date(new Date().setHours(0, 0, 0, 0))) {
+            applies = true;
+          }
+        }
+      } else if (blockData.date && blockData.date === patientDateStr) {
+        applies = true;
+      }
+
+      if (applies) {
+        const patientMinutes = dateToMinutes(controlDateObj);
+        if (patientMinutes >= blockStart && patientMinutes < blockEnd) {
+          const timeFormatted = controlDateObj.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+          return {
+            patientName: patient.name,
+            appointmentTime: timeFormatted,
+            dateLabel: patientDateStr,
+          };
+        }
       }
     }
   }

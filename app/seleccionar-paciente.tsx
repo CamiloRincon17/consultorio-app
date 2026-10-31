@@ -9,15 +9,17 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { Colors } from "../shared/constants/Colors";
-import { useApp } from "../context/AppContext";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
+import { usePatientsStore } from "../features/patients/store";
 import { AvatarInitials } from "../shared/components/AvatarInitials";
 
 export default function SelectPatientScreen() {
     const router = useRouter();
     const { date } = useLocalSearchParams();
-    const { patients } = useApp();
+    const patients = usePatientsStore((s) => s.patients);
     const [searchQuery, setSearchQuery] = useState("");
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
 
     const filteredPatients = useMemo(() => {
         if (!searchQuery.trim()) return patients;
@@ -36,7 +38,7 @@ export default function SelectPatientScreen() {
     return (
         <View style={styles.container}>
             <View style={styles.searchContainer}>
-                <Ionicons name="search" size={20} color={Colors.textSecondary} />
+                <Ionicons name="search" size={20} color={colors.textSecondary} />
                 <TextInput
                     style={styles.searchInput}
                     placeholder="Buscar paciente..."
@@ -52,17 +54,17 @@ export default function SelectPatientScreen() {
                 contentContainerStyle={styles.listContainer}
                 ListHeaderComponent={
                     <TouchableOpacity
-                        style={[styles.patientCard, { backgroundColor: Colors.primary + '10', borderColor: Colors.primary, marginBottom: 16 }]}
+                        style={[styles.patientCard, { backgroundColor: colors.primary + '10', borderColor: colors.primary, marginBottom: 16 }]}
                         onPress={() => router.push({ pathname: '/registrar-paciente', params: { date: date as string } })}
                     >
-                        <View style={[styles.iconCircle, { backgroundColor: Colors.primary }]} >
+                        <View style={[styles.iconCircle, { backgroundColor: colors.primary }]} >
                             <Ionicons name="person-add" size={20} color="white" />
                         </View>
                         <View style={styles.patientInfo}>
-                            <Text style={[styles.patientName, { color: Colors.primary }]}>Crear Nuevo Paciente</Text>
+                            <Text style={[styles.patientName, { color: colors.primary }]}>Crear Nuevo Paciente</Text>
                             <Text style={styles.patientPhone}>Registrar e iniciar cita</Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+                        <Ionicons name="chevron-forward" size={20} color={colors.primary} />
                     </TouchableOpacity>
                 }
                 renderItem={({ item }: any) => (
@@ -75,12 +77,12 @@ export default function SelectPatientScreen() {
                             <Text style={styles.patientName}>{item.name}</Text>
                             <Text style={styles.patientPhone}>{item.phone || "Sin teléfono"}</Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={20} color={Colors.border} />
+                        <Ionicons name="chevron-forward" size={20} color={colors.border} />
                     </TouchableOpacity>
                 )}
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Ionicons name="people-outline" size={48} color={Colors.border} />
+                        <Ionicons name="people-outline" size={48} color={colors.border} />
                         <Text style={styles.emptyText}>No se encontraron pacientes</Text>
                     </View>
                 }
@@ -89,27 +91,28 @@ export default function SelectPatientScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+    StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     searchContainer: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         margin: 16,
         paddingHorizontal: 12,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     searchInput: {
         flex: 1,
         paddingVertical: 12,
         marginLeft: 8,
         fontSize: 16,
-        color: Colors.text,
+        color: colors.text,
     },
     listContainer: {
         paddingHorizontal: 16,
@@ -118,12 +121,12 @@ const styles = StyleSheet.create({
     patientCard: {
         flexDirection: "row",
         alignItems: "center",
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         padding: 12,
         borderRadius: 12,
         marginBottom: 8,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     iconCircle: {
         width: 40,
@@ -139,11 +142,11 @@ const styles = StyleSheet.create({
     patientName: {
         fontSize: 16,
         fontWeight: "600",
-        color: Colors.text,
+        color: colors.text,
     },
     patientPhone: {
         fontSize: 14,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 2,
     },
     emptyContainer: {
@@ -151,7 +154,7 @@ const styles = StyleSheet.create({
         marginTop: 40,
     },
     emptyText: {
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 12,
         fontSize: 16,
     },

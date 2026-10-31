@@ -9,13 +9,15 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../shared/constants/Colors";
-import { useApp } from "../context/AppContext";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
+import { useFinanceStore } from "../features/finance/store";
 import { formatCOPShort } from "../shared/utils/formatCOP";
 
 export default function WeeklyReportScreen() {
   const router = useRouter();
-  const { transactions } = useApp();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
+  const transactions = useFinanceStore((s) => s.transactions);
   const [weekOffset, setWeekOffset] = useState(0);
 
   const report = useMemo(() => {
@@ -88,7 +90,7 @@ export default function WeeklyReportScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
         >
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Reporte Semanal</Text>
       </View>
@@ -97,7 +99,7 @@ export default function WeeklyReportScreen() {
         {/* Date Controls */}
         <View style={styles.dateControl}>
           <TouchableOpacity onPress={() => setWeekOffset((prev) => prev - 1)}>
-            <Ionicons name="chevron-back" size={24} color={Colors.primary} />
+            <Ionicons name="chevron-back" size={24} color={colors.primary} />
           </TouchableOpacity>
           <View style={styles.dateRange}>
             <Text style={styles.rangeText}>
@@ -120,7 +122,7 @@ export default function WeeklyReportScreen() {
             <Ionicons
               name="chevron-forward"
               size={24}
-              color={weekOffset >= 0 ? Colors.textSecondary : Colors.primary}
+              color={weekOffset >= 0 ? colors.textSecondary : colors.primary}
             />
           </TouchableOpacity>
         </View>
@@ -132,7 +134,7 @@ export default function WeeklyReportScreen() {
             <Text
               style={[
                 styles.balanceValue,
-                { color: report.balance >= 0 ? Colors.success : Colors.danger },
+                { color: report.balance >= 0 ? colors.success : colors.danger },
               ]}
             >
               {report.balance >= 0 ? "+" : ""}
@@ -141,7 +143,7 @@ export default function WeeklyReportScreen() {
           </View>
           <View style={styles.secondaryStats}>
             <View style={styles.statItem}>
-              <View style={[styles.dot, { backgroundColor: Colors.success }]} />
+              <View style={[styles.dot, { backgroundColor: colors.success }]} />
               <Text style={styles.subStatLabel}>Ingresos</Text>
               <Text style={styles.subStatValue}>
                 {formatCOPShort(report.income)}
@@ -149,7 +151,7 @@ export default function WeeklyReportScreen() {
             </View>
             <View style={styles.verticalDivider} />
             <View style={styles.statItem}>
-              <View style={[styles.dot, { backgroundColor: Colors.danger }]} />
+              <View style={[styles.dot, { backgroundColor: colors.danger }]} />
               <Text style={styles.subStatLabel}>Gastos</Text>
               <Text style={styles.subStatValue}>
                 {formatCOPShort(report.expenses)}
@@ -179,7 +181,7 @@ export default function WeeklyReportScreen() {
                           styles.bar,
                           {
                             height: `${incomeHeight}%`,
-                            backgroundColor: Colors.success,
+                            backgroundColor: colors.success,
                           },
                         ]}
                       />
@@ -190,7 +192,7 @@ export default function WeeklyReportScreen() {
                           styles.bar,
                           {
                             height: `${expenseHeight}%`,
-                            backgroundColor: Colors.danger,
+                            backgroundColor: colors.danger,
                             position: "absolute",
                             bottom: 0,
                             width: 4,
@@ -240,7 +242,7 @@ export default function WeeklyReportScreen() {
                     styles.transAmount,
                     {
                       color:
-                        t.type === "INCOME" ? Colors.success : Colors.danger,
+                        t.type === "INCOME" ? colors.success : colors.danger,
                     },
                   ]}
                 >
@@ -256,18 +258,19 @@ export default function WeeklyReportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   backButton: {
     marginRight: 16,
@@ -275,7 +278,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   content: {
     padding: 16,
@@ -284,7 +287,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     padding: 12,
     borderRadius: 12,
     marginBottom: 16,
@@ -300,14 +303,14 @@ const styles = StyleSheet.create({
   rangeText: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   yearText: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   statsCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,
@@ -323,7 +326,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   balanceValue: {
@@ -339,13 +342,13 @@ const styles = StyleSheet.create({
   },
   subStatLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 4,
   },
   subStatValue: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   dot: {
     width: 8,
@@ -355,7 +358,7 @@ const styles = StyleSheet.create({
   verticalDivider: {
     width: 1,
     height: "100%",
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
   },
   section: {
     marginBottom: 24,
@@ -363,7 +366,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginBottom: 12,
   },
   chartContainer: {
@@ -383,7 +386,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     position: "relative",
     marginBottom: 8,
-    backgroundColor: "#F0F0F0",
+    backgroundColor: colors.surface,
     borderRadius: 4,
     overflow: "hidden",
   },
@@ -393,11 +396,11 @@ const styles = StyleSheet.create({
   },
   dayLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   todayLabel: {
     fontWeight: "bold",
-    color: Colors.primary,
+    color: colors.primary,
   },
   transactionRow: {
     flexDirection: "row",
@@ -405,16 +408,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   transDesc: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.text,
+    color: colors.text,
   },
   transDate: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textTransform: "capitalize",
   },
   transAmount: {
@@ -423,7 +426,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: "center",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontStyle: "italic",
     marginTop: 12,
   },

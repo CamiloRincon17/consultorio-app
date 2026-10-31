@@ -75,6 +75,23 @@ export const useSyncStore = create<SyncState>((set) => ({
       useFinanceStore.getState().setTransactions(transactions);
       useSpecialistStore.getState().setSpecialistBlocks(specialistBlocks);
       useSpecialistStore.getState().setSavedDoctors(savedDoctors);
+
+      // Recuperar doctores guardados huérfanos locales (stuck in pending)
+      const orphanedDoctors = useSpecialistStore.getState().savedDoctors.filter(
+        (d) => d._syncStatus === 'pending'
+      );
+      if (orphanedDoctors.length > 0) {
+        import('../../services/supabase/specialistsService').then(({ bulkInsertSavedDoctors }) => {
+          bulkInsertSavedDoctors(orphanedDoctors).then(() => {
+            const markDoctorSynced = useSpecialistStore.getState().markDoctorSynced;
+            orphanedDoctors.forEach(d => markDoctorSynced(d.id));
+            console.log(`✅ Sincronizados ${orphanedDoctors.length} doctores huérfanos (refetch)`);
+          }).catch(e => {
+            const msg = e instanceof Error ? e.message : JSON.stringify(e);
+            console.warn("Fallo refetch doctores huérfanos:", msg);
+          });
+        });
+      }
       
       // Recuperar huérfanos locales que se quedaron atascados en 'pending'
       const orphanedPatients = usePatientsStore.getState().patients.filter(p => p._syncStatus === "pending");

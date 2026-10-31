@@ -12,14 +12,18 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../shared/constants/Colors";
-import { Patient, useApp } from "../context/AppContext";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
+import { Patient } from "../context/AppContext";
+import { usePatientsStore } from "../features/patients/store";
 import { NotificationService } from "../services/NotificationService";
 import { useDialog } from "../shared/context/DialogContext";
 
 export default function ReasignarOrtodoncia() {
   const router = useRouter();
-  const { patients, updatePatient } = useApp();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
+  const patients = usePatientsStore((s) => s.patients);
+  const updatePatient = usePatientsStore((s) => s.updatePatient);
   const dialog = useDialog();
   const [selectedPatients, setSelectedPatients] = useState<Set<string>>(
     new Set(),
@@ -222,7 +226,7 @@ export default function ReasignarOrtodoncia() {
           style={styles.autoRescheduleButton}
           onPress={() => handleAutoReschedule(item)}
         >
-          <Ionicons name="refresh" size={20} color={Colors.primary} />
+          <Ionicons name="refresh" size={20} color={colors.primary} />
         </TouchableOpacity>
       </View>
     );
@@ -233,7 +237,7 @@ export default function ReasignarOrtodoncia() {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Reasignar Citas</Text>
           <View style={{ width: 24 }} />
@@ -243,7 +247,7 @@ export default function ReasignarOrtodoncia() {
           <Ionicons
             name="calendar-outline"
             size={64}
-            color={Colors.textSecondary}
+            color={colors.textSecondary}
           />
           <Text style={styles.emptyText}>No hay pacientes de ortodoncia</Text>
           <Text style={styles.emptySubtext}>
@@ -259,13 +263,13 @@ export default function ReasignarOrtodoncia() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reasignar Ortodoncia</Text>
         <TouchableOpacity
           onPress={() => router.push("/historial-reasignaciones")}
         >
-          <Ionicons name="time-outline" size={24} color={Colors.primary} />
+          <Ionicons name="time-outline" size={24} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
@@ -275,11 +279,11 @@ export default function ReasignarOrtodoncia() {
           <Ionicons
             name="information-circle"
             size={24}
-            color={Colors.primary}
+            color={colors.primary}
           />
           <Text style={styles.infoText}>
             Selecciona pacientes para reasignar sus citas en lote, o usa el
-            botón ↻ para reasignar automáticamente basado en su frecuencia.
+            botón → para reasignar automáticamente basado en su frecuencia.
           </Text>
         </View>
 
@@ -289,8 +293,8 @@ export default function ReasignarOrtodoncia() {
           <Switch
             value={selectAll}
             onValueChange={toggleSelectAll}
-            trackColor={{ false: "#ccc", true: Colors.primary + "80" }}
-            thumbColor={selectAll ? Colors.primary : "#f4f3f4"}
+            trackColor={{ false: "#ccc", true: colors.primary + "80" }}
+            thumbColor={selectAll ? colors.primary : "#f4f3f4"}
           />
         </View>
 
@@ -307,7 +311,7 @@ export default function ReasignarOrtodoncia() {
                 <Ionicons
                   name="chevron-back"
                   size={24}
-                  color={Colors.primary}
+                  color={colors.primary}
                 />
               </TouchableOpacity>
 
@@ -326,7 +330,7 @@ export default function ReasignarOrtodoncia() {
                 <Ionicons
                   name="chevron-forward"
                   size={24}
-                  color={Colors.primary}
+                  color={colors.primary}
                 />
               </TouchableOpacity>
             </View>
@@ -374,31 +378,32 @@ export default function ReasignarOrtodoncia() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     padding: 16,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   content: {
     padding: 16,
     gap: 16,
   },
   infoCard: {
-    backgroundColor: Colors.primary + "10",
+    backgroundColor: colors.primary + "10",
     padding: 16,
     borderRadius: 12,
     flexDirection: "row",
@@ -408,11 +413,11 @@ const styles = StyleSheet.create({
   infoText: {
     flex: 1,
     fontSize: 14,
-    color: Colors.text,
+    color: colors.text,
     lineHeight: 20,
   },
   selectAllCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 12,
     flexDirection: "row",
@@ -422,10 +427,10 @@ const styles = StyleSheet.create({
   selectAllText: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   dateCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 12,
     gap: 16,
@@ -433,14 +438,14 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginBottom: 8,
   },
   dateSelector: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     padding: 12,
     borderRadius: 12,
   },
@@ -450,7 +455,7 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
     textTransform: "capitalize",
   },
   frequencyInput: {
@@ -460,23 +465,23 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: Colors.text,
+    color: colors.text,
     fontWeight: "500",
   },
   input: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     padding: 12,
     borderRadius: 8,
     fontSize: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
   },
   listContainer: {
     gap: 12,
   },
   patientCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 12,
     flexDirection: "row",
@@ -494,13 +499,13 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   checkboxSelected: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   patientInfo: {
     flex: 1,
@@ -508,26 +513,26 @@ const styles = StyleSheet.create({
   patientName: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginBottom: 4,
   },
   patientDetail: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   frequencyBadge: {
     fontSize: 12,
-    color: Colors.primary,
+    color: colors.primary,
     marginTop: 4,
     fontWeight: "500",
   },
   autoRescheduleButton: {
     padding: 8,
-    backgroundColor: Colors.primary + "10",
+    backgroundColor: colors.primary + "10",
     borderRadius: 8,
   },
   batchButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     padding: 18,
     borderRadius: 12,
     flexDirection: "row",
@@ -550,13 +555,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
   },

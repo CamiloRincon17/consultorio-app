@@ -1,7 +1,7 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/Colors';
+import { useColors, useThemedStyles, type Palette } from '../theme';
 
 interface ConfirmModalProps {
     visible: boolean;
@@ -27,18 +27,21 @@ export function ConfirmModal({
     onConfirm,
     onCancel,
     icon = "warning",
-    iconColor = Colors.danger,
+    iconColor,
     confirmStyle = "danger",
     hideCancel = false,
     buttons
 }: ConfirmModalProps) {
-    
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
+    const resolvedIconColor = iconColor ?? colors.danger;
+
     const getConfirmColor = () => {
         switch(confirmStyle) {
-            case 'primary': return Colors.primary;
-            case 'success': return Colors.success;
+            case 'primary': return colors.primary;
+            case 'success': return colors.success;
             case 'danger': 
-            default: return Colors.danger;
+            default: return colors.danger;
         }
     };
 
@@ -51,8 +54,8 @@ export function ConfirmModal({
         >
             <View style={styles.overlay}>
                 <View style={styles.card}>
-                    <View style={[styles.iconContainer, { backgroundColor: iconColor + '15' }]}>
-                        <Ionicons name={icon as any} size={40} color={iconColor} />
+                    <View style={[styles.iconContainer, { backgroundColor: resolvedIconColor + '15' }]}>
+                        <Ionicons name={icon as any} size={40} color={resolvedIconColor} />
                     </View>
                     
                     <Text style={styles.title}>{title}</Text>
@@ -62,9 +65,9 @@ export function ConfirmModal({
                         {buttons ? (
                             buttons.map((btn, index) => {
                                 const isCancel = btn.style === 'cancel';
-                                const btnColor = isCancel ? '#F2F2F7' : 
-                                                 btn.style === 'primary' ? Colors.primary : 
-                                                 btn.style === 'success' ? Colors.success : Colors.danger;
+                                const btnColor = isCancel ? colors.surface : 
+                                                 btn.style === 'primary' ? colors.primary : 
+                                                 btn.style === 'success' ? colors.success : colors.danger;
                                 return (
                                     <TouchableOpacity 
                                         key={index} 
@@ -100,7 +103,7 @@ export function ConfirmModal({
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) => StyleSheet.create({
     overlay: {
         flex: 1,
         backgroundColor: 'rgba(0,0,0,0.4)',
@@ -109,7 +112,7 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     card: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         borderRadius: 24,
         padding: 24,
         width: '100%',
@@ -132,13 +135,13 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 22,
         fontWeight: 'bold',
-        color: Colors.text,
+        color: colors.text,
         textAlign: 'center',
         marginBottom: 8,
     },
     message: {
         fontSize: 15,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         textAlign: 'center',
         lineHeight: 22,
         marginBottom: 24,
@@ -152,12 +155,12 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 14,
         borderRadius: 12,
-        backgroundColor: '#F2F2F7',
+        backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
     cancelText: {
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         fontSize: 16,
         fontWeight: '600',
     },

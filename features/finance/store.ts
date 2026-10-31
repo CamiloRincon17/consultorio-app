@@ -30,13 +30,17 @@ interface FinanceState {
   getDashboardStats: () => { monthlyIncome: number; weeklyIncome: number };
 }
 
-/** Guarda las transacciones en AsyncStorage para carga instantánea. */
-async function saveToCache(transactions: Transaction[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(TRANSACTIONS_CACHE_KEY, JSON.stringify(transactions));
-  } catch {
-    // Silencioso — el caché es best-effort
-  }
+/** Guarda las transacciones en AsyncStorage para carga instantánea (debounced para evitar lag). */
+let saveFinanceCacheTimer: ReturnType<typeof setTimeout> | null = null;
+function saveToCache(transactions: Transaction[]): void {
+  if (saveFinanceCacheTimer) clearTimeout(saveFinanceCacheTimer);
+  saveFinanceCacheTimer = setTimeout(async () => {
+    try {
+      await AsyncStorage.setItem(TRANSACTIONS_CACHE_KEY, JSON.stringify(transactions));
+    } catch {
+      // Silencioso — el caché es best-effort
+    }
+  }, 400);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Patient, Visit, SyncStatus } from "./types";
+import { Patient, Visit, Appointment, SyncStatus } from "./types";
 import { generateId } from "../../shared/utils/generateId";
 import { computePatientStats, getPatientVisits } from "./patientCalculations";
 import { useFinanceStore } from "../finance/store";
@@ -15,6 +15,31 @@ import {
 import { enqueueIfOffline } from "../../services/offlineQueue";
 
 const PATIENTS_CACHE_KEY = "PATIENTS_LOCAL_CACHE";
+
+/**
+ * Calcula la fecha de la próxima cita más cercana a partir de la lista de citas activas.
+ */
+export function computeNextControlDate(appointments?: Appointment[]): string | undefined {
+  if (!appointments || appointments.length === 0) return undefined;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  const active = appointments.filter((a) => a.status !== 'cancelled' && a.date);
+  if (active.length === 0) return undefined;
+
+  // Priorizar citas futuras (a partir de hoy)
+  const upcoming = active
+    .filter((a) => new Date(a.date) >= now)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  if (upcoming.length > 0) {
+    return upcoming[0].date;
+  }
+
+  // Si todas son pasadas, la más reciente
+  const sorted = [...active].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  return sorted[0]?.date;
+}
 
 interface PatientsState {
   patients: Patient[];
@@ -33,6 +58,9 @@ interface PatientsState {
   addVisit: (patientId: string, visit: Omit<Visit, "id">) => void;
   updateVisit: (patientId: string, visitId: string, updates: Partial<Visit>) => void;
   deleteVisit: (patientId: string, visitId: string) => void;
+  addAppointment: (patientId: string, appointment: Omit<Appointment, "id">) => string;
+  updateAppointment: (patientId: string, appointmentId: string, updates: Partial<Appointment>) => void;
+  deleteAppointment: (patientId: string, appointmentId: string) => void;
   getPatientStats: (patientId: string) => { totalPaid: number; visitCount: number };
   getPatientVisits: (patientId: string) => Visit[];
   /** Marca un paciente específico como sincronizado. */
@@ -41,13 +69,17 @@ interface PatientsState {
   markVisitSynced: (patientId: string, visitId: string) => void;
 }
 
-/** Guarda los pacientes actuales en AsyncStorage para carga instantánea. */
-async function saveToCache(patients: Patient[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem(PATIENTS_CACHE_KEY, JSON.stringify(patients));
-  } catch {
-    // Silencioso — el caché es best-effort
-  }
+/** Guarda los pacientes actuales en AsyncStorage para carga instantánea (debounced para evitar lag). */
+let saveCacheTimer: ReturnType<typeof setTimeout> | null = null;
+function saveToCache(patients: Patient[]): void {
+  if (saveCacheTimer) clearTimeout(saveCacheTimer);
+  saveCacheTimer = setTimeout(async () => {
+    try {
+      await AsyncStorage.setItem(PATIENTS_CACHE_KEY, JSON.stringify(patients));
+    } catch {
+      // Silencioso — el caché es best-effort
+    }
+  }, 400);
 }
 
 /**
@@ -149,9 +181,21 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
   setLoading: (isLoading) => set({ isLoading }),
 
   addPatient: (newPatient) => {
+    const patientId = generateId();
+    let initialAppointments = newPatient.appointments;
+    if ((!initialAppointments || initialAppointments.length === 0) && newPatient.nextControlDate) {
+      initialAppointments = [{
+        id: generateId(),
+        date: newPatient.nextControlDate,
+        reason: newPatient.treatmentType === 'ortodoncia' ? 'Control de ortodoncia' : 'Consulta',
+        status: 'scheduled',
+      }];
+    }
+
     const patient: Patient = {
       ...newPatient,
-      id: generateId(),
+      id: patientId,
+      appointments: initialAppointments,
       _syncStatus: "pending", // Inicia como pendiente
     };
 
@@ -431,6 +475,157 @@ export const usePatientsStore = create<PatientsState>((set, get) => ({
         };
       }),
     }));
+    saveToCache(get().patients);
+  },
+
+  addAppointment: (patientId, newAppointment) => {
+    const appointmentId = generateId();
+    const appt: Appointment = {
+      ...newAppointment,
+      id: appointmentId,
+      status: newAppointment.status || 'scheduled',
+      _syncStatus: 'pending' as SyncStatus,
+      _lastModified: new Date().toISOString(),
+    };
+
+    set((state) => ({
+      patients: state.patients.map((p) => {
+        if (p.id === patientId) {
+          const currentAppointments = p.appointments || [];
+          const updatedAppointments = [...currentAppointments, appt].sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+          );
+          const nextControlDate = computeNextControlDate(updatedAppointments);
+          return {
+            ...p,
+            appointments: updatedAppointments,
+            nextControlDate,
+            _syncStatus: 'pending' as SyncStatus,
+          };
+        }
+        return p;
+      }),
+    }));
+
+    const patient = get().patients.find((p) => p.id === patientId);
+    if (patient) {
+      persistWithRetry(
+        () => updatePatientDb(patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }),
+        'patients',
+        'updatePatientDb',
+        [patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }],
+      ).then((success) => {
+        if (success) {
+          usePatientsStore.getState().markSynced(patientId);
+        }
+      });
+
+      // Programar notificación específica para esta cita
+      import("../../services/NotificationService").then(({ NotificationService }) => {
+        NotificationService.scheduleAppointmentNotification(
+          patientId,
+          patient.name,
+          new Date(appt.date),
+          appt.id,
+          appt.reason
+        );
+      });
+    }
+
+    saveToCache(get().patients);
+    return appointmentId;
+  },
+
+  updateAppointment: (patientId, appointmentId, updates) => {
+    const now = new Date().toISOString();
+
+    set((state) => ({
+      patients: state.patients.map((p) => {
+        if (p.id === patientId && p.appointments) {
+          const updatedAppointments = p.appointments.map((a) =>
+            a.id === appointmentId
+              ? { ...a, ...updates, _syncStatus: 'pending' as SyncStatus, _lastModified: now }
+              : a
+          ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          const nextControlDate = computeNextControlDate(updatedAppointments);
+          return {
+            ...p,
+            appointments: updatedAppointments,
+            nextControlDate,
+            _syncStatus: 'pending' as SyncStatus,
+          };
+        }
+        return p;
+      }),
+    }));
+
+    const patient = get().patients.find((p) => p.id === patientId);
+    if (patient) {
+      persistWithRetry(
+        () => updatePatientDb(patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }),
+        'patients',
+        'updatePatientDb',
+        [patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }],
+      ).then((success) => {
+        if (success) {
+          usePatientsStore.getState().markSynced(patientId);
+        }
+      });
+
+      const updatedAppt = patient.appointments?.find((a) => a.id === appointmentId);
+      import("../../services/NotificationService").then(({ NotificationService }) => {
+        if (updatedAppt && updatedAppt.status !== 'cancelled') {
+          NotificationService.scheduleAppointmentNotification(
+            patientId,
+            patient.name,
+            new Date(updatedAppt.date),
+            updatedAppt.id,
+            updatedAppt.reason
+          );
+        } else {
+          NotificationService.cancelAppointmentNotification(patientId, appointmentId);
+        }
+      });
+    }
+
+    saveToCache(get().patients);
+  },
+
+  deleteAppointment: (patientId, appointmentId) => {
+    set((state) => ({
+      patients: state.patients.map((p) => {
+        if (p.id === patientId && p.appointments) {
+          const updatedAppointments = p.appointments.filter((a) => a.id !== appointmentId);
+          const nextControlDate = computeNextControlDate(updatedAppointments);
+          return {
+            ...p,
+            appointments: updatedAppointments,
+            nextControlDate,
+            _syncStatus: 'pending' as SyncStatus,
+          };
+        }
+        return p;
+      }),
+    }));
+
+    const patient = get().patients.find((p) => p.id === patientId);
+    if (patient) {
+      persistWithRetry(
+        () => updatePatientDb(patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }),
+        'patients',
+        'updatePatientDb',
+        [patientId, { appointments: patient.appointments, nextControlDate: patient.nextControlDate }],
+      ).then((success) => {
+        if (success) {
+          usePatientsStore.getState().markSynced(patientId);
+        }
+      });
+
+      import("../../services/NotificationService").then(({ NotificationService }) => {
+        NotificationService.cancelAppointmentNotification(patientId, appointmentId);
+      });
+    }
+
     saveToCache(get().patients);
   },
 }));

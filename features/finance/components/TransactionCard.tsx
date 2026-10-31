@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Colors } from "../../../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../../../shared/theme";
 import { formatCOPShort } from "../../../shared/utils/formatCOP";
 import { Transaction } from "../types";
 import { Patient } from "../../patients/types";
@@ -20,9 +20,9 @@ export const getDisplayName = (item: Transaction, patients: Patient[]) => {
 };
 
 /** Devuelve el color correcto para la transacción según su categoría y tipo */
-function getTransactionColor(item: Transaction): string {
+function getTransactionColor(item: Transaction, colors: Palette): string {
   if (item.category === "arriendo_consultorio") return RENTAL_COLOR;
-  return item.type === "INCOME" ? Colors.success : Colors.danger;
+  return item.type === "INCOME" ? colors.success : colors.danger;
 }
 
 /** Devuelve el ícono correcto */
@@ -37,14 +37,16 @@ interface TransactionCardProps {
   onPress: () => void;
 }
 
-export const TransactionCard = ({
+export const TransactionCard = React.memo(({
   item,
   patients,
   onPress,
 }: TransactionCardProps) => {
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   const displayName = getDisplayName(item, patients);
   const subTitle = (item.procedure && displayName !== item.procedure) ? item.procedure : (item.description && displayName !== item.description ? item.description : "");
-  const color = getTransactionColor(item);
+  const color = getTransactionColor(item, colors);
   const icon = getTransactionIcon(item);
   const isRental = item.category === "arriendo_consultorio";
 
@@ -80,13 +82,14 @@ export const TransactionCard = ({
       </Text>
     </TouchableOpacity>
   );
-};
+});
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   card: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 12,
   },
@@ -114,7 +117,7 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 16,
     fontWeight: "500",
-    color: Colors.text,
+    color: colors.text,
   },
   rentalBadge: {
     backgroundColor: RENTAL_COLOR + "20",
@@ -131,13 +134,13 @@ const styles = StyleSheet.create({
   },
   date: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
     textTransform: "capitalize",
   },
   subtitle: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     fontStyle: "italic",
   },
   amount: {

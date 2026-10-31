@@ -7,4 +7,15 @@ module.exports = defineConfig([
   {
     ignores: ['dist/*'],
   },
+  {
+    settings: {
+      'import/resolver': {
+        typescript: {
+          // Use TypeScript resolver which respects package.json "exports" field
+          // This fixes "Unable to resolve path to module 'expo-router/drawer'" etc.
+          alwaysTryTypes: true,
+        },
+      },
+    },
+  },
 ]);

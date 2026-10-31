@@ -1,29 +1,41 @@
 import { Stack } from "expo-router";
-import { useEffect } from "react";
+import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import { AppProvider, useApp } from "../context/AppContext";
+import { useEffect } from "react";
+import { AppProvider } from "../context/AppContext";
+import { usePatientsStore } from "../features/patients/store";
 import { NotificationService } from "../services/NotificationService";
 import { DialogProvider } from "../shared/context/DialogContext";
+import { useProfileStore } from "../features/profile/store";
+import { useSettingsStore } from "../features/settings/store";
+import { ThemeProvider, useColors, useTheme } from "../shared/theme";
 
 // Prevenir que el Splash se oculte automáticamente
 // Se ocultará manualmente en AppProvider cuando auth/datos estén listos
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function RootLayoutNav() {
-  const { patients } = useApp();
+  // Sin suscripción a patients: re-renderiza todo el Stack en cada cambio de lista.
+  // Se lee con getState() dentro del effect (solo se ejecuta una vez al montar).
+  const colors = useColors();
+  const { isDark } = useTheme();
 
   useEffect(() => {
+    // Cargar los datos personales del doctor (locales, editables)
+    useProfileStore.getState().loadProfile();
+    // Cargar configuraciones de la app (tema, etc.)
+    useSettingsStore.getState().loadSettings();
+
     // Initialize notifications when app starts
     const initNotifications = async () => {
       try {
-        // Request permissions
         const hasPermission = await NotificationService.requestPermissions();
 
-        if (hasPermission) {
+        if (hasPermission?.granted) {
           console.log("🔔 Initializing notification system...");
 
           // Reschedule all notifications in case app was reinstalled
-          await NotificationService.rescheduleAllNotifications(patients);
+          await NotificationService.rescheduleAllNotifications(usePatientsStore.getState().patients);
 
           console.log("✅ Notification system initialized");
         } else {
@@ -38,7 +50,16 @@ function RootLayoutNav() {
   }, []); // Run once on mount
 
   return (
-    <Stack>
+    <>
+    <StatusBar style={isDark ? "light" : "dark"} />
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.card },
+        headerTintColor: colors.primary,
+        headerTitleStyle: { color: colors.text },
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen
@@ -79,7 +100,7 @@ function RootLayoutNav() {
         options={{
           presentation: "modal",
           title: "Editar Paciente",
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Stack.Screen
@@ -87,14 +108,21 @@ function RootLayoutNav() {
         options={{
           presentation: "modal",
           title: "Editar Transacción",
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="configuracion"
         options={{
           presentation: "modal",
-          title: "Configuración",
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="perfil-doctor"
+        options={{
+          presentation: "modal",
+          title: "Perfil del doctor",
           headerShown: true,
         }}
       />
@@ -153,15 +181,18 @@ function RootLayoutNav() {
         }}
       />
     </Stack>
+    </>
   );
 }
 
 export default function RootLayout() {
   return (
-    <AppProvider>
-      <DialogProvider>
-        <RootLayoutNav />
-      </DialogProvider>
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <DialogProvider>
+          <RootLayoutNav />
+        </DialogProvider>
+      </AppProvider>
+    </ThemeProvider>
   );
 }

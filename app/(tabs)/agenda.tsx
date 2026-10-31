@@ -5,6 +5,7 @@ import {
     Linking,
     RefreshControl,
     ScrollView,
+    Share,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -13,7 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Calendar, LocaleConfig } from "react-native-calendars";
 import { ActivityIndicator } from "react-native";
-import { Colors } from "../../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../../shared/theme";
 import { isSameLocalDay, toLocalDateString } from "../../shared/utils/dateUtils";
 import { sortSpecialistBlocksByTime } from "../../shared/utils/scheduleUtils";
 import { Patient, Visit } from "../../features/patients/types";
@@ -35,8 +36,25 @@ LocaleConfig.defaultLocale = 'es';
 
 const formatDateKey = (date: Date): string => toLocalDateString(date);
 
+/** Convierte "HH:MM AM/PM" a minutos desde medianoche (para comparar/ordenar). */
+const parseTimeStr = (t: string): number => {
+    const m = t?.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return 9999;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (m[3]?.toUpperCase() === 'PM' && h < 12) h += 12;
+    if (m[3]?.toUpperCase() === 'AM' && h === 12) h = 0;
+    return h * 60 + min;
+};
+
+type TimelineItem =
+    | { kind: 'doctor'; block: any; sortMinutes: number }
+    | { kind: 'patient'; patient: any; sortMinutes: number; index: number };
+
 export default function AgendaScreen() {
     const router = useRouter();
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
     const dialog = useDialog();
     const patients = usePatientsStore((s) => s.patients);
     const isLoading = usePatientsStore((s) => s.isLoading);
@@ -86,57 +104,76 @@ export default function AgendaScreen() {
             visitDetails?: string; 
             realId: string; 
             hasAttended?: boolean;
+            appointmentId?: string;
+            appointmentReason?: string;
             extraVisits?: Visit[];
         })[] = [];
 
+        const attendedVisitIds = new Set<string>();
+
         patients.forEach((p) => {
-            if (p.nextControlDate) {
-                const controlLocal = toLocalDateString(p.nextControlDate);
-
-                const controlDateObj = new Date(controlLocal + 'T00:00:00');
-                const windowStart = new Date(controlDateObj);
-                windowStart.setDate(windowStart.getDate() - 7);
-                const windowStartStr = toLocalDateString(windowStart);
-
-                const windowVisits = (p.visits || []).filter(v => {
-                    const vDate = toLocalDateString(v.date);
-                    return vDate >= windowStartStr && vDate <= controlLocal;
+            // Recopilar citas programadas activas del paciente
+            const activeAppointments: Array<{ id?: string; date: string; reason?: string }> = [];
+            if (p.appointments && p.appointments.length > 0) {
+                p.appointments.forEach((a) => {
+                    if (a.date && a.status !== 'cancelled' && a.status !== 'completed') {
+                        activeAppointments.push({ id: a.id, date: a.date, reason: a.reason });
+                    }
                 });
+            } else if (p.nextControlDate) {
+                activeAppointments.push({
+                    id: undefined,
+                    date: p.nextControlDate,
+                    reason: p.treatmentType === 'ortodoncia' ? 'Control de ortodoncia' : 'Consulta',
+                });
+            }
 
-                const controlVisits = windowVisits.filter(v => 
-                    /control|mensual|mensualidad/i.test(v.reason || '') ||
-                    /control|mensual|mensualidad/i.test(v.treatment || '')
+            activeAppointments.forEach((appt) => {
+                const controlLocal = toLocalDateString(appt.date);
+
+                // Solo buscar visitas que coincidan con la fecha exacta de esta cita
+                // y que no hayan sido vinculadas a otra cita previa
+                const matchingVisit = (p.visits || []).find(v => 
+                    !attendedVisitIds.has(v.id) && toLocalDateString(v.date) === controlLocal
                 );
-                
-                const extraVisits = windowVisits.filter(v => 
-                    !(/control|mensual|mensualidad/i.test(v.reason || '') ||
-                      /control|mensual|mensualidad/i.test(v.treatment || ''))
+
+                if (matchingVisit) {
+                    attendedVisitIds.add(matchingVisit.id);
+                }
+
+                // Otras visitas en el mismo día que no sean matchingVisit
+                const extraVisits = (p.visits || []).filter(v =>
+                    v.id !== matchingVisit?.id && toLocalDateString(v.date) === controlLocal
                 );
-
-                const matchingVisit = controlVisits.length > 0 ? controlVisits.reduce((latest, v) =>
-                    toLocalDateString(v.date) >= toLocalDateString(latest.date) ? v : latest
-                ) : undefined;
-
-                const isAdvance = matchingVisit && !isSameLocalDay(matchingVisit.date, controlLocal);
 
                 upcoming.push({ 
                     ...p, 
-                    controlDateObj: new Date(p.nextControlDate), 
+                    id: appt.id ? `${p.id}-appt-${appt.id}` : `${p.id}-ctrl-${appt.date}`,
+                    appointmentId: appt.id,
+                    appointmentReason: appt.reason,
+                    controlDateObj: new Date(appt.date), 
                     realId: p.id,
                     hasAttended: !!matchingVisit,
                     visitDetails: matchingVisit
-                        ? `${isAdvance ? '(Ant.) ' : ''}${matchingVisit.reason || matchingVisit.treatment || 'Visita registrada'}`
-                        : undefined,
+                        ? (matchingVisit.reason || matchingVisit.treatment || 'Visita registrada')
+                        : (appt.reason || undefined),
                     extraVisits: extraVisits
                 });
-            }
+            });
+
             if (p.visits && p.visits.length > 0) {
                 p.visits.forEach(v => {
+                    // Evitar duplicar la visita que ya sirvió para confirmar una cita
+                    if (attendedVisitIds.has(v.id)) return;
+
+                    // Usar T12:00:00 para evitar desfase de zona horaria (YYYY-MM-DD a UTC sería día anterior en CO)
+                    const visitDateStr = v.date && v.date.length === 10 ? v.date + 'T12:00:00' : v.date;
+
                     upcoming.push({
                         ...p,
                         id: `${p.id}-visit-${v.id}`,
                         realId: p.id,
-                        controlDateObj: new Date(v.date),
+                        controlDateObj: new Date(visitDateStr),
                         isVisit: true,
                         visitDetails: v.reason || v.treatment || "Visita",
                         _syncStatus: v._syncStatus || p._syncStatus,
@@ -240,18 +277,7 @@ export default function AgendaScreen() {
             const blocksForDay = specialistBlocks.filter(b => {
                 if (b.isRecurring) return b.recurringDays?.includes(dayOfWeek);
                 return b.date === dateKey;
-            }).sort((a, b) => {
-                const toMin = (t: string) => {
-                    const m = t.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
-                    if (!m) return 0;
-                    let h = parseInt(m[1], 10);
-                    const min = parseInt(m[2], 10);
-                    if (m[3]?.toUpperCase() === 'PM' && h < 12) h += 12;
-                    if (m[3]?.toUpperCase() === 'AM' && h === 12) h = 0;
-                    return h * 60 + min;
-                };
-                return toMin(a.startTime) - toMin(b.startTime);
-            });
+            }).sort((a, b) => parseTimeStr(a.startTime) - parseTimeStr(b.startTime));
 
             if (blocksForDay.length > 0) {
                 blocksForDay.forEach(block => {
@@ -267,7 +293,8 @@ export default function AgendaScreen() {
                 const typeStr = p.isVisit
                     ? `✅ Asistió`
                     : p.treatmentType === "ortodoncia" ? "🦷 Ortodoncia" : "🏥 General";
-                message += `  🕐 ${timeStr} — *${p.name}* (${typeStr})\n`;
+                const reasonStr = p.appointmentReason ? ` — ${p.appointmentReason}` : '';
+                message += `  🕐 ${timeStr} — *${p.name}* (${typeStr}${reasonStr})\n`;
                 totalCitas++;
             });
             message += `\n`;
@@ -276,6 +303,65 @@ export default function AgendaScreen() {
         message += `Total: ${totalCitas} cita(s)`;
         return message;
     }, [items, selectedDate, specialistBlocks]);
+
+    // ── Enviar recordatorio de cita por WhatsApp (Opción A: mensaje listo sin API) ──
+    const sendWhatsAppToPatient = useCallback(async (patient: any, timeString: string) => {
+        const dateLabel = new Date(selectedDate + 'T12:00:00Z').toLocaleDateString('es-ES', {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+        });
+        const capitalDate = dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1);
+        const timeLabel = timeString ? `🕐 *Hora:* ${timeString}\n` : '';
+        const typeLabel = patient.treatmentType === 'ortodoncia' ? '🦷 Ortodoncia' : '🏥 Consulta general';
+        const reasonLabel = patient.appointmentReason ? `📋 *Motivo:* ${patient.appointmentReason}\n` : '';
+
+        const message =
+            `*RECORDATORIO DE CITA*\n` +
+            `Hola *${patient.name}* \n\n` +
+            `Le recordamos que tiene una cita médica programada:\n\n` +
+            `📅 *Fecha:* ${capitalDate}\n` +
+            ` ${timeLabel}\n` +
+            `Por favor confirme su asistencia respondiendo:\n` +
+            `✅ *SÍ* asistiré\n` +
+            `❌ *NO* podré asistir\n\n` +
+            `_Gracias por su preferencia_ 🙏`;
+
+        // Si tiene teléfono registrado, se formatea sin símbolos (57 Colombia si tiene 10 dígitos)
+        let phoneDigits = (patient.phone || '').replace(/\D/g, '');
+        if (phoneDigits.length === 10) {
+            phoneDigits = `57${phoneDigits}`;
+        }
+
+        // Opción A: Abrir WhatsApp con el mensaje listo
+        // - Con número: https://wa.me/<número>?text=...
+        // - Sin número: whatsapp://send?text=... (el usuario elige el contacto en WhatsApp)
+        const encodedText = encodeURIComponent(message);
+        const url = phoneDigits
+            ? `https://wa.me/${phoneDigits}?text=${encodedText}`
+            : `whatsapp://send?text=${encodedText}`;
+
+        try {
+            const supported = await Linking.canOpenURL(url).catch(() => false);
+            if (supported) {
+                await Linking.openURL(url);
+            } else {
+                // Si el esquema whatsapp:// falla o no está instalado, intentar abrir wa.me o compartir
+                const webUrl = `https://wa.me/${phoneDigits ? phoneDigits : ''}?text=${encodedText}`;
+                const webSupported = await Linking.canOpenURL(webUrl).catch(() => false);
+                if (webSupported) {
+                    await Linking.openURL(webUrl);
+                } else {
+                    await Share.share({ message, title: `Cita - ${patient.name}` });
+                }
+            }
+        } catch {
+            try {
+                await Share.share({ message, title: `Cita - ${patient.name}` });
+            } catch {
+                dialog.alert('Error', 'No se pudo abrir WhatsApp ni compartir el mensaje.', 'error');
+            }
+        }
+    }, [selectedDate, dialog]);
+
 
     const shareToWhatsApp = useCallback(async () => {
         const message = buildAgendaMessage();
@@ -303,7 +389,111 @@ export default function AgendaScreen() {
         }
     }, [buildAgendaMessage, dialog]);
 
-    const renderItem = useCallback((patient: any, isFirst: boolean) => {
+
+    // Puntos del calendario memoizados (solo recalculan cuando cambian los datos de agenda o bloques)
+    const baseMarkedDots = useMemo(() => {
+        const marks: Record<
+            string,
+            {
+                dots?: Array<{ key: string; color: string; selectedDotColor?: string }>;
+
+                selected?: boolean;
+                selectedColor?: string;
+            }
+        > = {};
+
+        const patientDot = { key: 'patient', color: colors.primary, selectedDotColor: 'white' };
+        const doctorDot = { key: 'doctor', color: '#7C3AED', selectedDotColor: '#DDD6FE' };
+        const patientDates = new Set<string>();
+        Object.keys(items).forEach((dateKey) => {
+            if (items[dateKey]?.length > 0) {
+                patientDates.add(dateKey);
+            }
+        });
+
+        const doctorDates = new Set<string>();
+
+        Object.keys(items).forEach((dateKey) => {
+            const d = new Date(dateKey + "T12:00:00Z");
+            const dayOfWeek = d.getUTCDay();
+
+            const hasDoctor = specialistBlocks.some((block) => {
+                if (block.isRecurring) {
+                    return block.recurringDays?.includes(dayOfWeek);
+                }
+                return block.date === dateKey;
+            });
+
+            if (hasDoctor) {
+                doctorDates.add(dateKey);
+            }
+        });
+
+        specialistBlocks.forEach((block) => {
+            if (!block.isRecurring && block.date) {
+                doctorDates.add(block.date);
+            }
+        });
+
+        const allDateKeys = new Set([...patientDates, ...doctorDates]);
+
+        allDateKeys.forEach((dateKey) => {
+            const dots: Array<{ key: string; color: string; selectedDotColor?: string }> = [];
+
+            if (patientDates.has(dateKey)) {
+                dots.push(patientDot);
+            }
+            if (doctorDates.has(dateKey)) {
+                dots.push(doctorDot);
+            }
+
+            marks[dateKey] = { dots };
+        });
+
+        return marks;
+    }, [items, specialistBlocks]);
+
+    // Resaltar la fecha seleccionada instantáneamente (O(1) sin bucles)
+    const markedDates = useMemo(() => {
+        const marks = { ...baseMarkedDots };
+        const current = marks[selectedDate];
+        marks[selectedDate] = {
+            ...current,
+            selected: true,
+            selectedColor: colors.primary,
+        };
+        return marks;
+    }, [baseMarkedDots, selectedDate, colors]);
+
+    // Timeline unificado (doctores + pacientes) ordenado por hora — solo se
+    // recalcula cuando cambian los bloques del día o los pacientes del día.
+    const timelineItems = useMemo<TimelineItem[]>(() => {
+        const list: TimelineItem[] = [];
+
+        activeSpecialistBlocks.forEach((block) => {
+            list.push({
+                kind: 'doctor',
+                block,
+                sortMinutes: parseTimeStr(block.startTime),
+            });
+        });
+
+        const dayPatients: any[] = items[selectedDate] || [];
+        dayPatients.forEach((patient, index) => {
+            const d: Date | undefined = patient.controlDateObj;
+            const mins = d ? d.getHours() * 60 + d.getMinutes() : 9999;
+            list.push({ kind: 'patient', patient, sortMinutes: mins, index });
+        });
+
+        list.sort((a, b) => a.sortMinutes - b.sortMinutes);
+        return list;
+    }, [activeSpecialistBlocks, items, selectedDate]);
+
+    const openTimelineDoctor = useCallback((blockId: string) => {
+        router.push({ pathname: '/registrar-bloque-especialista', params: { id: blockId } });
+    }, [router]);
+
+    const openPatient = useCallback((patient: any, isFirst: boolean) => {
         if (!patient) return <View />;
 
         const timeString = patient.controlDateObj?.toLocaleTimeString
@@ -318,7 +508,7 @@ export default function AgendaScreen() {
 
         return (
             <TouchableOpacity
-                style={[styles.card, { marginTop: isFirst ? 20 : 0 }]}
+                style={[styles.card, { marginTop: isFirst ? 10 : 0 }, isFinished && { backgroundColor: '#dde7d2ff' }]}
                 onPress={() => {
                     if (isFinished) {
                         router.push({
@@ -328,7 +518,13 @@ export default function AgendaScreen() {
                     } else {
                         router.push({
                             pathname: "/registrar-pago",
-                            params: { id: patient.realId },
+                            params: { 
+                                id: patient.realId,
+                                // Pasar el appointmentId para saber exactamente qué cita eliminar
+                                appointmentId: patient.appointmentId ?? '',
+                                date: toLocalDateString(patient.controlDateObj),
+                                reason: patient.appointmentReason || '',
+                            },
                         });
                     }
                 }}
@@ -336,48 +532,73 @@ export default function AgendaScreen() {
             >
                 <View style={styles.timeColumn}>
                     <Text style={styles.timeText}>{timeString}</Text>
-                    <View style={[styles.timelineDot, isFinished && { backgroundColor: Colors.success }]} />
+                    <View style={[styles.timelineDot, isFinished && { backgroundColor: colors.success }]} />
                 </View>
                 <View style={styles.contentColumn}>
                     <View style={styles.nameRow}>
                         <Text style={styles.patientName} numberOfLines={1}>{patient.name}</Text>
                         {patient._syncStatus === 'pending' ? (
                             <View style={styles.syncBadgePending}>
-                                <ActivityIndicator size={8} color="#FF8C00" />
+                                <ActivityIndicator size={8} color={colors.warning} />
                                 <Text style={styles.syncBadgePendingText}>Pendiente</Text>
                             </View>
                         ) : patient._syncStatus === 'synced' ? (
                             <View style={styles.syncBadgeSynced}>
-                                <Ionicons name="cloud-done-outline" size={10} color="#2E7D32" />
+                                <Ionicons name="cloud-done-outline" size={10} color={colors.success} />
                                 <Text style={styles.syncBadgeSyncedText}>En la nube</Text>
                             </View>
                         ) : null}
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', rowGap: 4 }}>
                         <Text style={styles.treatmentText}>
-                            <Ionicons name={isFinished ? "checkmark-circle" : "medical"} size={12} color={Colors.textSecondary} />{" "}
-                            {isFinished 
-                                ? `Asistió: ${patient.visitDetails || 'Visita registrada'}` 
-                                : `${patient.treatmentType === "ortodoncia" ? "Ortodoncia (Pendiente)" : "General (Pendiente)"}`}
-                        </Text>
-                        
-                        {patient.extraVisits && patient.extraVisits.map((ev: any, index: number) => (
-                            <Fragment key={ev.id || index}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
-                                    <Ionicons name="checkmark-circle" size={12} color={Colors.textSecondary} />
-                                    <Text style={[styles.treatmentText, { color: Colors.textSecondary, marginLeft: 4 }]}>
-                                     {ev.reason || ev.treatment || 'Procedimiento'}
-                                    </Text>
-                                </View>
-                            </Fragment>
-                        ))}
-                    </View>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={Colors.border} />
-            </TouchableOpacity>
+                                    <Ionicons name={isFinished ? "checkmark-circle" : "medical"} size={12} color={colors.textSecondary} />{" "}
+                                    {isFinished 
+                                        ? `Asistió: ${patient.visitDetails || 'Visita registrada'}` 
+                                        : `${patient.treatmentType === "ortodoncia" ? "Ortodoncia" : "General"}${patient.appointmentReason ? ` • ${patient.appointmentReason}` : ' (Pendiente)'}`}
+                                </Text>
+                                
+                                {patient.extraVisits && patient.extraVisits.map((ev: any, index: number) => (
+                                    <Fragment key={ev.id || index}>
+                                        <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 6 }}>
+                                            <Ionicons name="checkmark-circle" size={12} color={colors.textSecondary} />
+                                            <Text style={[styles.treatmentText, { color: colors.textSecondary, marginLeft: 4 }]}>
+                                             {ev.reason || ev.treatment || 'Procedimiento'}
+                                            </Text>
+                                        </View>
+                                    </Fragment>
+                                ))}
+                            </View>
+                        </View>
+                        {!isFinished && (
+                            <TouchableOpacity
+                                style={{ padding: 6, marginRight: 2 }}
+                                onPress={(e) => {
+                                    e.stopPropagation?.();
+                                    router.push({
+                                        pathname: "/modificar-control",
+                                        params: { id: patient.realId, appointmentId: patient.appointmentId },
+                                    });
+                                }}
+                            >
+                                <Ionicons name="create-outline" size={20} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                        {!isFinished && (
+                            <TouchableOpacity
+                                style={styles.whatsappCardButton}
+                                activeOpacity={0.75}
+                                onPress={(e) => {
+                                    e.stopPropagation?.();
+                                    sendWhatsAppToPatient(patient, timeString);
+                                }}
+                            >
+                                <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+                            </TouchableOpacity>
+                        )}
+                        <Ionicons name="chevron-forward" size={20} color={colors.border} />
+                    </TouchableOpacity>
         );
-    }, [router]);
-
+    }, [router, styles, colors, sendWhatsAppToPatient]);
 
     return (
         <SafeAreaView style={styles.container}>
@@ -386,7 +607,7 @@ export default function AgendaScreen() {
                     <Text style={styles.title}>Agenda</Text>
                     {pendingCount > 0 && (
                         <View style={styles.pendingBadge}>
-                            <Ionicons name="cloud-upload-outline" size={11} color="#FF8C00" />
+                            <Ionicons name="cloud-upload-outline" size={11} color={colors.warning} />
                             <Text style={styles.pendingBadgeText}>{pendingCount}</Text>
                         </View>
                     )}
@@ -404,30 +625,35 @@ export default function AgendaScreen() {
             {isLoading ? (
                 <View style={{ padding: 16 }}><AgendaSkeleton /></View>
             ) : (
-                <View style={{ flex: 1 }}>
+                <ScrollView 
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ paddingBottom: 60 }}
+                    refreshControl={<RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />}
+                    showsVerticalScrollIndicator={false}
+                >
                     <Calendar
                         current={selectedDate}
                         onDayPress={(day: any) => setSelectedDate(day.dateString)}
-                        markedDates={{
-                            [selectedDate]: { selected: true, selectedColor: Colors.primary },
-                            ...Object.keys(items).reduce((acc: any, key) => {
-                                if (items[key]?.length > 0 && key !== selectedDate) {
-                                    acc[key] = { marked: true, dotColor: Colors.primary };
-                                }
-                                return acc;
-                            }, {})
-                        }}
+                        markingType={'multi-dot'}
+                        markedDates={markedDates}
                         theme={{
-                            todayTextColor: Colors.primary,
-                            selectedDayBackgroundColor: Colors.primary,
-                            arrowColor: Colors.primary,
+                            todayTextColor: colors.primary,
+                            selectedDayBackgroundColor: colors.primary,
+                            arrowColor: colors.primary,
                         }}
                     />
+                    <View style={styles.legendRow}>
+                        <View style={styles.legendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: colors.primary }]} />
+                            <Text style={styles.legendText}>Pacientes</Text>
+                        </View>
+                        <View style={styles.legendItem}>
+                            <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
+                            <Text style={styles.legendText}>Doctores</Text>
+                        </View>
+                    </View>
                     
-                    <ScrollView 
-                        style={{ flex: 1, padding: 16 }}
-                        refreshControl={<RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />}
-                    >
+                    <View style={{ padding: 16 }}>
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                             <Text style={[styles.dateHeaderText, { marginBottom: 0, flex: 1 }]}>
                                 {new Date(selectedDate + "T12:00:00Z").toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" })}
@@ -437,110 +663,128 @@ export default function AgendaScreen() {
                                     style={styles.addDoctorButton}
                                     onPress={() => router.push({ pathname: '/registrar-bloque-especialista', params: { date: selectedDate } })}
                                 >
-                                    <Ionicons name="medkit-outline" size={14} color="#4F46E5" />
+                                    <Ionicons name="medkit-outline" size={14} color={colors.primary} />
                                     <Text style={styles.addDoctorText}>+ Doctor</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity 
                                     style={styles.addCitaButton}
                                     onPress={() => router.push({ pathname: '/seleccionar-paciente', params: { date: selectedDate } })}
                                 >
-                                    <Ionicons name="add" size={16} color={Colors.primary} />
+                                    <Ionicons name="add" size={16} color={colors.primary} />
                                     <Text style={styles.addCitaText}>Cita</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
                         
-                        {/* Bloques de Doctor Especialista */}
-                        {activeSpecialistBlocks.length > 0 && (
-                            <View style={{ marginBottom: 12 }}>
-                                <Text style={styles.sectionHeaderTitle}>🩺 Doctor Especialista en Consultorio</Text>
-                                {activeSpecialistBlocks.map((block) => (
-                                    <TouchableOpacity
-                                        key={block.id}
-                                        style={styles.specialistCard}
-                                        onPress={() => router.push({ pathname: '/registrar-bloque-especialista', params: { id: block.id } })}
-                                        activeOpacity={0.8}
-                                    >
-                                        <View style={styles.specialistHeaderRow}>
-                                            <View style={styles.specialistBadge}>
-                                                <Ionicons name="time" size={12} color="#4F46E5" />
-                                                <Text style={styles.specialistBadgeText}>
-                                                    {block.startTime} - {block.endTime} ({block.shiftTitle || "Reserva"})
-                                                </Text>
-                                            </View>
-                                            <Ionicons name="create-outline" size={16} color="#6366F1" />
-                                        </View>
-                                        <Text style={styles.specialistDoctorName}>{block.doctorName}</Text>
-                                        {block.specialty ? (
-                                            <Text style={styles.specialistSubText}>Especialidad: {block.specialty}</Text>
-                                        ) : null}
-                                        {block.notes ? (
-                                            <Text style={styles.specialistNotesText}>Notas: {block.notes}</Text>
-                                        ) : null}
-                                        <Text style={styles.specialistNotice}>
-                                         Consultorio ocupado por el doctor (atiende a sus propios pacientes)
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        )}
+                        {/* Timeline unificado: doctores + pacientes ordenados por hora */}
+                        {(() => {
+                            // timelineItems ya viene ordenado por hora (useMemo arriba)
+                            if (timelineItems.length === 0) {
+                                return (
+                                    <View style={styles.emptyContainer}>
+                                        <Ionicons name="calendar-clear-outline" size={48} color={colors.border} />
+                                        <Text style={styles.emptyText}>No hay citas ni doctores para este día</Text>
+                                    </View>
+                                );
+                            }
 
-                        <Text style={styles.sectionHeaderTitle}>👤 Citas de Pacientes Propios</Text>
-                        {(!items[selectedDate] || items[selectedDate].length === 0) ? (
-                            <View style={styles.emptyContainer}>
-                                <Ionicons name="calendar-clear-outline" size={48} color={Colors.border} />
-                                <Text style={styles.emptyText}>No hay citas de pacientes propios para este día</Text>
-                            </View>
-                        ) : (
-                            items[selectedDate].map((patient: any, index: number) => (
-                                <Fragment key={patient.id || index}>
-                                    {renderItem(patient, index === 0)}
-                                </Fragment>
-                            ))
-                        )}
+                            return timelineItems.map((item, i) => {
+                                if (item.kind === 'doctor') {
+                                    const block = item.block;
+                                    return (
+                                        <TouchableOpacity
+                                            key={`doctor-${block.id}`}
+                                            style={[styles.specialistCard, { marginTop: i === 0 ? 20 : 0 }]}
+                                            onPress={() => openTimelineDoctor(block.id)}
+                                            activeOpacity={0.8}
+                                        >
+                                            <View style={styles.specialistHeaderRow}>
+                                                <View style={styles.specialistBadge}>
+                                                    <Ionicons name="time" size={12} color={colors.primary} />
+                                                    <Text style={styles.specialistBadgeText}>
+                                                        {block.startTime} - {block.endTime} ({block.shiftTitle || "Reserva"})
+                                                    </Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                    {block._syncStatus === 'pending' ? (
+                                                        <View style={styles.syncBadgePending}>
+                                                            <ActivityIndicator size={8} color={colors.warning} />
+                                                            <Text style={styles.syncBadgePendingText}>Pendiente</Text>
+                                                        </View>
+                                                    ) : block._syncStatus === 'synced' ? (
+                                                        <View style={styles.syncBadgeSynced}>
+                                                            <Ionicons name="cloud-done-outline" size={10} color={colors.success} />
+                                                            <Text style={styles.syncBadgeSyncedText}>En la nube</Text>
+                                                        </View>
+                                                    ) : null}
+                                                    <Ionicons name="create-outline" size={16} color={colors.text} />
+                                                </View>
+                                            </View>
+                                            <Text style={styles.specialistDoctorName}>{block.doctorName}</Text>
+                                            {block.specialty ? (
+                                                <Text style={styles.specialistSubText}>Especialidad: {block.specialty}</Text>
+                                            ) : null}
+                                            {block.notes ? (
+                                                <Text style={styles.specialistNotesText}>Notas: {block.notes}</Text>
+                                            ) : null}
+                                            <Text style={styles.specialistNotice}>
+                                             Consultorio ocupado por el doctor (atiende a sus propios pacientes)
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                } else {
+                                    return (
+                                        <Fragment key={item.patient.id || i}>
+                                            {openPatient(item.patient, i === 0)}
+                                        </Fragment>
+                                    );
+                                }
+                            });
+                        })()}
                         <View style={{ height: 40 }} />
                         <View style={{ height: 40 }} />
-                    </ScrollView>
-                </View>
+                    </View>
+                </ScrollView>
             )}
         </SafeAreaView>
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     header: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         padding: 16,
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
+        borderBottomColor: colors.border,
     },
     title: {
         fontSize: 28,
         fontWeight: "bold",
-        color: Colors.text,
+        color: colors.text,
     },
     pendingBadge: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        backgroundColor: '#FFF3E0',
+        backgroundColor: colors.surface,
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#FF8C00',
+        borderColor: colors.warning,
     },
     pendingBadgeText: {
         fontSize: 11,
         fontWeight: '700',
-        color: '#FF8C00',
+        color: colors.warning,
     },
     whatsappButton: {
         flexDirection: "row",
@@ -557,7 +801,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     dateHeaderText: {
-        color: Colors.primary,
+        color: colors.primary,
         fontWeight: "bold",
         textTransform: "capitalize",
         fontSize: 16,
@@ -566,25 +810,24 @@ const styles = StyleSheet.create({
     addCitaButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: Colors.primary + '15',
+        backgroundColor: colors.primary + '15',
         paddingHorizontal: 12,
         paddingVertical: 6,
         borderRadius: 20,
         gap: 4,
     },
     addCitaText: {
-        color: Colors.primary,
+        color: colors.primary,
         fontWeight: '600',
         fontSize: 14,
     },
     card: {
         flexDirection: "row",
-        backgroundColor: "white",
+        backgroundColor: colors.card,
         borderRadius: 12,
-        padding: 16,
-        marginRight: 16,
+        padding: 14,
         marginBottom: 12,
-        shadowColor: "#000",
+        shadowColor: "#000000ff",
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
         shadowRadius: 4,
@@ -598,29 +841,29 @@ const styles = StyleSheet.create({
         marginRight: 16,
     },
     timeText: {
-        fontSize: 14,
+        fontSize: 15,
         fontWeight: "bold",
-        color: Colors.primary,
+        color: colors.time,
         marginBottom: 4,
     },
     timelineDot: {
         width: 10,
         height: 10,
-        borderRadius: 5,
-        backgroundColor: Colors.primary,
+        borderRadius: 11,
+        backgroundColor: colors.primary,
     },
     contentColumn: {
         flex: 1,
     },
     patientName: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: "600",
-        color: Colors.text,
+        color: colors.text,
         marginBottom: 4,
     },
     treatmentText: {
         fontSize: 12,
-        color: Colors.textSecondary,
+        color: colors.text,
     },
     emptyContainer: {
         alignItems: "center",
@@ -630,7 +873,7 @@ const styles = StyleSheet.create({
     emptyText: {
         marginTop: 16,
         fontSize: 16,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         fontWeight: "500",
         textAlign: "center",
         paddingHorizontal: 32,
@@ -646,33 +889,33 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        backgroundColor: "#FFF3E0",
+        backgroundColor: colors.surface,
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: "#FF8C00",
+        borderColor: colors.warning,
     },
     syncBadgePendingText: {
         fontSize: 9,
         fontWeight: "700",
-        color: "#FF8C00",
+        color: colors.warning,
     },
     syncBadgeSynced: {
         flexDirection: "row",
         alignItems: "center",
         gap: 3,
-        backgroundColor: "#E8F5E9",
+        backgroundColor: colors.surface,
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 8,
         borderWidth: 1,
-        borderColor: "#A5D6A7",
+        borderColor: colors.success,
     },
     syncBadgeSyncedText: {
         fontSize: 9,
         fontWeight: "700",
-        color: "#2E7D32",
+        color: colors.success,
     },
     addDoctorButton: {
         flexDirection: "row",
@@ -681,29 +924,40 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 20,
-        backgroundColor: "#EEF2FF",
+        backgroundColor: colors.surface,
         borderWidth: 1,
-        borderColor: "#C7D2FE",
+        borderColor: colors.primary,
     },
     addDoctorText: {
         fontSize: 12,
         fontWeight: "700",
-        color: "#4F46E5",
+        color: colors.primary,
+    },
+    whatsappCardButton: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#25D36618',
+        borderWidth: 1.5,
+        borderColor: '#25D366',
+        marginRight: 2,
     },
     sectionHeaderTitle: {
         fontSize: 13,
         fontWeight: "700",
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         textTransform: "uppercase",
         letterSpacing: 0.5,
         marginBottom: 8,
         marginTop: 4,
     },
     specialistCard: {
-        backgroundColor: "#F5F3FF",
+        backgroundColor: colors.surface,
         borderRadius: 12,
         borderWidth: 1.5,
-        borderColor: "#C4B5FD",
+        borderColor: colors.primary,
         padding: 14,
         marginBottom: 12,
     },
@@ -717,7 +971,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        backgroundColor: "#DDD6FE",
+        backgroundColor: colors.primary + "20",
         paddingHorizontal: 8,
         paddingVertical: 3,
         borderRadius: 6,
@@ -725,29 +979,54 @@ const styles = StyleSheet.create({
     specialistBadgeText: {
         fontSize: 12,
         fontWeight: "700",
-        color: "#4C1D95",
+        color: colors.primary,
     },
     specialistDoctorName: {
         fontSize: 16,
         fontWeight: "700",
-        color: "#312E81",
+        color: colors.primary,
         marginBottom: 2,
     },
     specialistSubText: {
         fontSize: 13,
-        color: "#4338CA",
+        color: colors.primary,
         fontWeight: "500",
     },
     specialistNotesText: {
         fontSize: 12,
-        color: "#6B7280",
+        color: colors.textSecondary,
         marginTop: 2,
         fontStyle: "italic",
     },
     specialistNotice: {
         fontSize: 11,
-        color: "#4C1D95",
+        color: colors.primary,
         marginTop: 6,
         fontWeight: "600",
+    },
+    legendRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        gap: 16,
+        paddingVertical: 8,
+        backgroundColor: colors.card,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    legendItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    legendDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
+    legendText: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: colors.textSecondary,
     },
 });

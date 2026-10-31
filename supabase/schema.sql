@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS patients (
   appointment_frequency INT,
   appointment_day       INT,
   last_appointment_date TEXT,
+  photos                JSONB DEFAULT '[]'::jsonb,
+  appointments          JSONB DEFAULT '[]'::jsonb,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -33,8 +35,14 @@ CREATE TABLE IF NOT EXISTS visits (
   cost           NUMERIC,
   paid           BOOLEAN NOT NULL DEFAULT FALSE,
   transaction_id TEXT,
+  photos         JSONB DEFAULT '[]'::jsonb,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Si las tablas ya existen sin las columnas opcionales, agregarlas libre de riesgos:
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS appointments JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE visits ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]'::jsonb;
 
 -- ─── TABLA: transactions ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS transactions (

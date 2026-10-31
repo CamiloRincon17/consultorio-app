@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { Colors } from '../constants/Colors';
+import { useColors } from '../theme';
 
 type DialogType = 'success' | 'error' | 'confirm' | 'info';
 
@@ -31,6 +31,7 @@ export const useDialog = () => {
 };
 
 export const DialogProvider = ({ children }: { children: ReactNode }) => {
+  const colors = useColors();
   const [config, setConfig] = useState<{
     visible: boolean;
     title: string;
@@ -109,17 +110,17 @@ export const DialogProvider = ({ children }: { children: ReactNode }) => {
   }, [hide]);
 
   let iconName = "information-circle";
-  let iconColor = Colors.primary;
+  let iconColor = colors.primary;
   
   if (config.type === 'error') {
     iconName = "close-circle";
-    iconColor = Colors.danger;
+    iconColor = colors.danger;
   } else if (config.type === 'success') {
     iconName = "checkmark-circle";
-    iconColor = Colors.success;
+    iconColor = colors.success;
   } else if (config.type === 'confirm') {
     iconName = "warning";
-    iconColor = config.confirmStyle === 'danger' ? Colors.danger : Colors.primary;
+    iconColor = config.confirmStyle === 'danger' ? colors.danger : colors.primary;
   }
 
   return (

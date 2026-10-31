@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/Colors';
+import { useColors, useThemedStyles, type Palette } from '../theme';
 
 interface StatCardProps {
   title: string;
@@ -29,13 +29,15 @@ interface StatCardProps {
  * />
  * ```
  */
-export const StatCard: React.FC<StatCardProps> = ({
+export const StatCard: React.FC<StatCardProps> = React.memo(({
   title,
   value,
   icon,
   iconColor,
   onPress,
 }) => {
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   return (
     <TouchableOpacity
       style={styles.card}
@@ -51,18 +53,18 @@ export const StatCard: React.FC<StatCardProps> = ({
       </View>
       {onPress ? (
         <View style={styles.chevron}>
-          <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
         </View>
       ) : null}
     </TouchableOpacity>
   );
-};
+});
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) => StyleSheet.create({
   card: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: colors.card,
     padding: 16,
     borderRadius: 16,
     shadowColor: '#000',
@@ -84,13 +86,13 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   value: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: Colors.text,
+    color: colors.text,
   },
   chevron: {
     marginLeft: 'auto',

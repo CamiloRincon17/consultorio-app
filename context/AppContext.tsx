@@ -224,6 +224,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
           if (orphanedDoctors.length > 0) {
             import('../services/supabase/specialistsService').then(({ bulkInsertSavedDoctors }) => {
               bulkInsertSavedDoctors(orphanedDoctors).then(() => {
+                const markDoctorSynced = useSpecialistStore.getState().markDoctorSynced;
+                orphanedDoctors.forEach(d => markDoctorSynced(d.id));
                 console.log(`✅ Sincronizados ${orphanedDoctors.length} doctores huérfanos`);
               }).catch(e => {
                 console.warn("Fallo al sincronizar doctores huérfanos:", e);
@@ -246,18 +248,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         // ── PASO 4: Migración en SEGUNDO PLANO (no bloquea) ──────────────────
         runMigrationBackground(currentUserId);
 
-        // ── PASO 5: Auto-reasignación de ortodoncia ───────────────────────────
-        const currentPatients = usePatientsStore.getState().patients;
-        if (currentPatients.length > 0) {
-          AutoReassignService.checkAndRunAutoReassign(
-            currentPatients,
-            usePatientsStore.getState().updatePatient
-          ).then((result) => {
-            if (result.count > 0) {
-              console.log(`🔄 Reasignación automática: ${result.message}`);
-            }
-          });
-        }
+        // Auto-reasignación desactivada: el usuario gestiona las citas manualmente
       } catch (e) {
         console.error("❌ Error al cargar datos:", e);
       } finally {
@@ -331,39 +322,29 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 };
 
 /**
- * @deprecated Legacy hook for compatibility.
- * Please use `usePatientsStore` and `useFinanceStore` directly in components
- * with granular selectors (e.g. `usePatientsStore(s => s.patients)`) to avoid re-renders.
+ * Importa datos locales (pacientes + transacciones) a la nube y actualiza el estado local.
+ * Función standalone (no hook) para usarse sin suscribirse a los stores completos.
+ * En componentes usa siempre selectores granulares:
+ *   `usePatientsStore(s => s.patients)` / `useFinanceStore(s => s.transactions)`
  */
-export const useApp = () => {
-  const patientsState = usePatientsStore();
-  const financeState = useFinanceStore();
+export const importData = async (newPatients: Patient[], newTransactions: Transaction[]) => {
+  try {
+    // 1. Guardar en la nube (Supabase)
+    const { bulkInsertPatients } = await import("../services/supabase/patientsService");
+    const { bulkInsertTransactions } = await import("../services/supabase/financeService");
+    await bulkInsertPatients(newPatients);
+    await bulkInsertTransactions(newTransactions);
 
-  const importData = async (newPatients: Patient[], newTransactions: Transaction[]) => {
-    try {
-      // 1. Guardar en la nube (Supabase)
-      const { bulkInsertPatients } = await import("../services/supabase/patientsService");
-      const { bulkInsertTransactions } = await import("../services/supabase/financeService");
-      await bulkInsertPatients(newPatients);
-      await bulkInsertTransactions(newTransactions);
+    // 2. Actualizar estado local (sin suscripción reactiva)
+    usePatientsStore.getState().setPatients(newPatients);
+    useFinanceStore.getState().setTransactions(newTransactions);
 
-      // 2. Actualizar estado local
-      patientsState.setPatients(newPatients);
-      financeState.setTransactions(newTransactions);
-
-      console.log("✅ Datos importados correctamente a la nube y local");
-      import("../services/NotificationService").then(({ NotificationService }) => {
-        NotificationService.rescheduleAllNotifications(newPatients);
-      });
-    } catch (error) {
-      console.error("❌ Error al importar datos:", error);
-      throw error;
-    }
-  };
-
-  return {
-    ...patientsState,
-    ...financeState,
-    importData,
-  };
+    console.log("✅ Datos importados correctamente a la nube y local");
+    import("../services/NotificationService").then(({ NotificationService }) => {
+      NotificationService.rescheduleAllNotifications(newPatients);
+    });
+  } catch (error) {
+    console.error("❌ Error al importar datos:", error);
+    throw error;
+  }
 };

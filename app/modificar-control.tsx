@@ -1,33 +1,80 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
     Platform,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
-import { Colors } from "../shared/constants/Colors";
-import { useApp } from "../context/AppContext";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
+import { usePatientsStore } from "../features/patients/store";
 import { NotificationService } from "../services/NotificationService";
 import { useDialog } from "../shared/context/DialogContext";
 import { useSpecialistStore } from "../features/specialists/store";
 import { findSpecialistConflictForAppointment } from "../shared/utils/scheduleUtils";
 
+const REASON_SUGGESTIONS = [
+  "Control",
+  "Ajuste de brackets",
+  "Limpieza",
+  "Calza / Resina",
+  "Revisión",
+  "Extracción",
+  "Urgencia",
+];
+
 export default function ModifyControl() {
   const router = useRouter();
-  const { id, date } = useLocalSearchParams();
-  const { patients, updatePatient } = useApp();
-  const dialog = useDialog();
+  const { id, date, appointmentId } = useLocalSearchParams();
+  
+  const patients = usePatientsStore((s) => s.patients);
+  const addAppointment = usePatientsStore((s) => s.addAppointment);
+  const updateAppointment = usePatientsStore((s) => s.updateAppointment);
+  const deleteAppointment = usePatientsStore((s) => s.deleteAppointment);
+  const updatePatient = usePatientsStore((s) => s.updatePatient);
 
-  const patient = patients.find((p) => p.id === id);
+  const dialog = useDialog();
+  const patient = patients.find((l) => l.id === id);
   const specialistBlocks = useSpecialistStore((s) => s.specialistBlocks);
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
+
+  // Buscar cita a editar inicial (si se lasó appointmentId)
+  const initialEditingAppointment =
+    appointmentId && patient?.appointments
+      ? patient.appointments.find((a) => a.id === appointmentId)
+      : null;
+
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    if (initialEditingAppointment) {
+      return new Date(initialEditingAppointment.date);
+    }
+    if (date) {
+      return new Date((date as string) + "T10:00:00Z");
+    }
+    if (patient?.nextControlDate) {
+      return new Date(patient.nextControlDate);
+    }
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return tomorrow;
+  });
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+
+  const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(
+    initialEditingAppointment?.id || (appointmentId as string) || null
+  );
+  const [appointmentReason, setAppointmentReason] = useState(
+    initialEditingAppointment?.reason || "Control"
+  );
 
   const [notificationScheduled, setNotificationScheduled] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState({
@@ -36,81 +83,83 @@ export default function ModifyControl() {
     notificationMinute: 0,
   });
   const [treatmentType, setTreatmentType] = useState<"ortodoncia" | "general">(
-    "general",
+    patient?.treatmentType || "general"
   );
-  const [appointmentFrequency, setAppointmentFrequency] = useState<string>("4");
-
-  const checkNotificationStatus = useCallback(async () => {
-    const scheduled = await NotificationService.getAllScheduledNotifications();
-    const hasNotification = scheduled.some(
-      (n) => n.identifier === `appointment_${patient?.id}`,
-    );
-    setNotificationScheduled(hasNotification);
-  }, [patient?.id]);
-
-  const loadNotificationSettings = useCallback(async () => {
-    try {
-      const settings = await NotificationService.getSettings();
-      setNotificationSettings({
-        daysInAdvance: settings.daysInAdvance,
-        notificationHour: settings.notificationHour,
-        notificationMinute: settings.notificationMinute,
-      });
-    } catch (error) {
-      console.error("Error loading notification settings:", error);
-    }
-  }, []);
+  const [appointmentFrequency, setAppointmentFrequency] = useState<string>(
+    patient?.appointmentFrequency?.toString() || "4"
+  );
 
   useEffect(() => {
-    if (patient) {
-      if (date) {
-        setSelectedDate(new Date(date as string + "T12:00:00Z"));
-      } else if (patient.nextControlDate) {
-        setSelectedDate(new Date(patient.nextControlDate));
-      } else {
-        // Default to tomorrow
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        setSelectedDate(tomorrow);
-      }
+    let isMounted = true;
+    if (!patient) return;
 
-      // Initialize treatment type and frequency
-      setTreatmentType(patient.treatmentType || "general");
-      setAppointmentFrequency(patient.appointmentFrequency?.toString() || "4");
+    NotificationService.getAllScheduledNotifications()
+      .then((scheduled) => {
+        if (!isMounted) return;
+        const hasNotification = scheduled.some(
+          (n) => n.identifier.startsWith(`appointment_${patient.id}`)
+        );
+        setNotificationScheduled(hasNotification);
+      })
+      .catch((error) => {
+        console.error("Error loading notification status:", error);
+      });
 
-      // Check if notification is already scheduled
-      checkNotificationStatus();
-      loadNotificationSettings();
-    }
-  }, [patient, date, checkNotificationStatus, loadNotificationSettings]);
+    NotificationService.getSettings()
+      .then((settings) => {
+        if (!isMounted) return;
+        setNotificationSettings({
+          daysInAdvance: settings.daysInAdvance,
+          notificationHour: settings.notificationHour,
+          notificationMinute: settings.notificationMinute,
+        });
+      })
+      .catch((error) => {
+        console.error("Error loading notification settings:", error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [patient]);
 
   const handleDateChange = (event: any, pickedDate?: Date) => {
-    // On Android, dismiss the picker first
     if (Platform.OS === "android") {
       setShowDatePicker(false);
       setShowTimePicker(false);
     }
 
-    // Check if user cancelled (event.type can be 'dismissed' or 'set')
     if (event.type === "dismissed") {
-      // User cancelled, do nothing
       return;
     }
 
-    // Update the date/time if provided
     if (pickedDate) {
       setSelectedDate(pickedDate);
     }
   };
 
+  const handleSelectAppointmentToEdit = (appt: { id: string; date: string; reason?: string }) => {
+    setEditingAppointmentId(appt.id);
+    setSelectedDate(new Date(appt.date));
+    setAppointmentReason(appt.reason || "Control");
+  };
+
+  const handleCancelEditing = () => {
+    setEditingAppointmentId(null);
+    setAppointmentReason("Control");
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    setSelectedDate(tomorrow);
+  };
+
   const handleSave = async () => {
     if (!patient) return;
 
-    // Validate date is in the future
     if (selectedDate <= new Date()) {
       dialog.alert(
         "Fecha inválida",
-        "La fecha de la cita debe ser en el futuro.",
+        "La fecha y hora de la cita debe ser en el futuro.",
         "error"
       );
       return;
@@ -121,33 +170,42 @@ export default function ModifyControl() {
     if (conflict) {
       dialog.alert(
         "Horario ocupado",
-        `El doctor especialista ${conflict.doctorName} (${conflict.specialty || 'Especialista'}) trabaja en el consultorio ese día de ${conflict.startTime} a ${conflict.endTime}. Por favor elige otra hora.`,
+        `El doctor especialista ${conflict.doctorName} (${conflict.specialty || 'especialista'}) trabaja en el consultorio ese día de ${conflict.startTime} a ${conflict.endTime}. Por favor elige otra hora.`,
         "error"
       );
       return;
     }
 
-    // Save to context with treatment info
+    const finalReason = appointmentReason.trim() || (treatmentType === "ortodoncia" ? "Control de ortodoncia" : "Consulta");
+
+    // Guardar según si es edición o nueva cita
+    if (editingAppointmentId) {
+      updateAppointment(patient.id, editingAppointmentId, {
+        date: selectedDate.toISOString(),
+        reason: finalReason,
+        status: "scheduled",
+      });
+    } else {
+      addAppointment(patient.id, {
+        date: selectedDate.toISOString(),
+        reason: finalReason,
+        status: "scheduled",
+      });
+    }
+
+    // Actualizar datos del tratamiento
     updatePatient(patient.id, {
-      nextControlDate: selectedDate.toISOString(),
       treatmentType,
       appointmentFrequency: parseInt(appointmentFrequency, 10) || undefined,
     });
 
-    // Schedule notification (without waiting)
-    NotificationService.scheduleAppointmentNotification(
-      patient.id,
-      patient.name,
-      selectedDate,
-    );
-
     dialog.alert(
-      "Guardado",
-      "Fecha actualizada exitosamente.",
+      editingAppointmentId ? "Cita Actualizada" : "Cita Programada",
+      editingAppointmentId
+        ? "La cita se ha modificado exitosamente."
+        : "La nueva cita ha sido programada exitosamente.",
       "success",
       () => {
-        // Si viene del flujo Agenda → seleccionar-paciente → modificar-control,
-        // cerrar 2 modales para volver directo a Agenda
         if (date) {
           router.dismiss(2);
         } else {
@@ -157,16 +215,39 @@ export default function ModifyControl() {
     );
   };
 
+  const handleDeleteSpecificAppointment = (apptId: string, apptDateStr: string) => {
+    if (!patient) return;
+
+    const formatted = new Date(apptDateStr).toLocaleDateString("es-ES", {
+      day: "numeric",
+      month: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+    dialog.confirm(
+      "Eliminar Cita",
+      `¿Deseas eliminar la cita programada para el ${formatted}?`,
+      () => {
+        deleteAppointment(patient.id, apptId);
+        if (editingAppointmentId === apptId) {
+          handleCancelEditing();
+        }
+      },
+      "danger"
+    );
+  };
+
   const handleCancelNotification = async () => {
     if (!patient) return;
 
     dialog.confirm(
-      "¿Cancelar notificación?",
-      "Se eliminará la notificación programada pero la fecha de cita se mantendrá.",
+      "¿Cancelar notificaciones?",
+      "Se eliminarán los recordatorios automáticos de citas para este paciente.",
       async () => {
         await NotificationService.cancelAppointmentNotification(patient.id);
         setNotificationScheduled(false);
-        dialog.alert("Cancelada", "Notificación cancelada", "success");
+        dialog.alert("Canceladas", "Notificaciones canceladas", "success");
       },
       "danger"
     );
@@ -185,6 +266,10 @@ export default function ModifyControl() {
       </View>
     );
   }
+
+  const activeAppointments = (patient.appointments || []).filter(
+    (a) => a.status !== "cancelled" && a.status !== "completed"
+  ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   const formattedDate = selectedDate.toLocaleDateString("es-ES", {
     weekday: "long",
@@ -205,27 +290,167 @@ export default function ModifyControl() {
     >
       <View style={styles.header}>
         <View style={styles.iconCircle}>
-          <Ionicons name="calendar" size={32} color={Colors.primary} />
+          <Ionicons name="calendar" size={28} color={colors.primary} />
         </View>
-        <Text style={styles.title}>Programar Cita</Text>
+        <Text style={styles.title}>
+          {editingAppointmentId ? "Modificar Cita" : "Programar Cita"}
+        </Text>
         <Text style={styles.subtitle}>{patient.name}</Text>
       </View>
 
+      {/* Lista de citas activas si tiene más de 0 
+      {activeAppointments.length > 0 && (
+        <View style={styles.card}>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              Citas Programadas ({activeAppointments.length})
+            </Text>
+            {editingAppointmentId && (
+              <TouchableOpacity
+                style={styles.newApptButton}
+                onPress={handleCancelEditing}
+              >
+                <Ionicons name="add-circle-outline" size={16} color={colors.primary} />
+                <Text style={styles.newApptButtonText}>Nueva Cita</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {activeAppointments.map((appt) => {
+            const isBeingEdited = editingAppointmentId === appt.id;
+            const apptDateObj = new Date(appt.date);
+            const dateDisplay = apptDateObj.toLocaleDateString("es-ES", {
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+            });
+            const timeDisplay = apptDateObj.toLocaleTimeString("es-ES", {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+
+            return (
+              <View
+                key={appt.id}
+                style={[
+                  styles.appointmentItem,
+                  isBeingEdited && styles.appointmentItemEditing,
+                ]}
+              >
+                <View style={styles.appointmentLeft}>
+                  <View
+                    style={[
+                      styles.appointmentDot,
+                      isBeingEdited && { backgroundColor: colors.primary },
+                    ]}
+                  />
+                  <View>
+                    <Text style={styles.appointmentDateText}>
+                      {dateDisplay} a las {timeDisplay}
+                    </Text>
+                    <Text style={styles.appointmentReasonText}>
+                      {appt.reason || "Control"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.appointmentActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.itemActionButton,
+                      isBeingEdited && styles.itemActionButtonActive,
+                    ]}
+                    onPress={() => handleSelectAppointmentToEdit(appt)}
+                  >
+                    <Ionicons
+                      name="create-outline"
+                      size={18}
+                      color={isBeingEdited ? colors.primary : colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.itemActionButton}
+                    onPress={() =>
+                      handleDeleteSpecificAppointment(appt.id, appt.date)
+                    }
+                  >
+                    <Ionicons
+                      name="trash-outline"
+                      size={18}
+                      color={colors.danger}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      )}*/}
+
+      {/* Formulario de Fecha, Hora y Motivo */}
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Fecha y Hora de la Cita</Text>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.sectionTitle}>
+            {editingAppointmentId ? "Modificar Cita Seleccionada" : "Nueva Cita"}
+          </Text>
+          {editingAppointmentId && (
+            <TouchableOpacity onPress={handleCancelEditing}>
+              <Text style={styles.cancelEditLink}>Cancelar</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Motivo de la Cita */}
+        <Text style={styles.label}>Motivo o Procedimiento</Text>
+        <TextInput
+          style={styles.reasonInput}
+          value={appointmentReason}
+          onChangeText={setAppointmentReason}
+          placeholder="Ej. Control de ortodoncia, Calza, Limpieza..."
+          placeholderTextColor="#999"
+        />
+
+        {/* Chips de sugerencias */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chilsScroll}
+          contentContainerStyle={styles.chipsContainer}
+        >
+          {REASON_SUGGESTIONS.map((Chip) => (
+            <TouchableOpacity
+              key={Chip}
+              style={[
+                styles.Chip,
+                appointmentReason === Chip && styles.chipActive,
+              ]}
+              onPress={() => setAppointmentReason(Chip)}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  appointmentReason === Chip && styles.chipTextActive,
+                ]}
+              >
+                {Chip}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <View style={styles.separator} />
 
         {/* Date Selection */}
         <TouchableOpacity
           style={styles.dateButton}
-          onPress={() => {
-            setShowDatePicker(true);
-          }}
+          onPress={() => setShowDatePicker(true)}
         >
           <View style={styles.dateButtonContent}>
             <Ionicons
               name="calendar-outline"
               size={24}
-              color={Colors.primary}
+              color={colors.primary}
             />
             <View style={styles.dateTextContainer}>
               <Text style={styles.label}>Fecha</Text>
@@ -235,7 +460,7 @@ export default function ModifyControl() {
           <Ionicons
             name="chevron-forward"
             size={20}
-            color={Colors.textSecondary}
+            color={colors.textSecondary}
           />
         </TouchableOpacity>
 
@@ -244,12 +469,10 @@ export default function ModifyControl() {
         {/* Time Selection */}
         <TouchableOpacity
           style={styles.dateButton}
-          onPress={() => {
-            setShowTimePicker(true);
-          }}
+          onPress={() => setShowTimePicker(true)}
         >
           <View style={styles.dateButtonContent}>
-            <Ionicons name="time-outline" size={24} color={Colors.primary} />
+            <Ionicons name="time-outline" size={24} color={colors.primary} />
             <View style={styles.dateTextContainer}>
               <Text style={styles.label}>Hora</Text>
               <Text style={styles.dateText}>{formattedTime}</Text>
@@ -258,7 +481,7 @@ export default function ModifyControl() {
           <Ionicons
             name="chevron-forward"
             size={20}
-            color={Colors.textSecondary}
+            color={colors.textSecondary}
           />
         </TouchableOpacity>
 
@@ -299,9 +522,9 @@ export default function ModifyControl() {
         )}
       </View>
 
-      {/* Treatment Type & Frequency Card */}
+      {/* Treatment type & Frequency Card */}
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Tipo de Tratamiento</Text>
+        <Text style={styles.sectionTitle}>tipo de Tratamiento</Text>
 
         <View style={styles.treatmentTypeContainer}>
           <TouchableOpacity
@@ -316,8 +539,8 @@ export default function ModifyControl() {
               size={24}
               color={
                 treatmentType === "general"
-                  ? Colors.primary
-                  : Colors.textSecondary
+                  ? colors.primary
+                  : colors.textSecondary
               }
             />
             <Text
@@ -343,8 +566,8 @@ export default function ModifyControl() {
               size={24}
               color={
                 treatmentType === "ortodoncia"
-                  ? Colors.primary
-                  : Colors.textSecondary
+                  ? colors.primary
+                  : colors.textSecondary
               }
             />
             <Text
@@ -362,7 +585,7 @@ export default function ModifyControl() {
         {treatmentType === "ortodoncia" && (
           <View style={styles.frequencyContainer}>
             <Text style={styles.frequencyLabel}>
-              Frecuencia de citas (semanas)
+              Frecuencia de citas habitual (semanas)
             </Text>
             <View style={styles.frequencyButtons}>
               {["2", "3", "4", "6", "8"].map((weeks) => (
@@ -387,34 +610,32 @@ export default function ModifyControl() {
                 </TouchableOpacity>
               ))}
             </View>
-            <Text style={styles.frequencyHint}>
-              Se usará para reasignación automática
-            </Text>
           </View>
         )}
       </View>
 
+      {/* Notifications Card */}
       <View style={styles.card}>
         <View style={styles.notificationRow}>
           <Ionicons
             name={notificationScheduled ? "notifications" : "notifications-off"}
             size={24}
             color={
-              notificationScheduled ? Colors.primary : Colors.textSecondary
+              notificationScheduled ? colors.primary : colors.textSecondary
             }
           />
           <View style={styles.notificationInfo}>
             <Text style={styles.notificationTitle}>
               {notificationScheduled
-                ? "Notificación programada"
-                : "Sin notificación"}
+                ? "Notificaciones activas"
+                : "Sin notificaciones"}
             </Text>
             <Text style={styles.notificationSubtitle}>
               Se enviará un recordatorio{" "}
               {notificationSettings.daysInAdvance === 1
                 ? "el día anterior"
                 : `${notificationSettings.daysInAdvance} días antes`}{" "}
-              a la misma hora de la cita
+              a la hora de cada cita programada
             </Text>
           </View>
         </View>
@@ -425,23 +646,35 @@ export default function ModifyControl() {
             onPress={handleCancelNotification}
           >
             <Text style={styles.cancelNotificationText}>
-              Cancelar notificación
+              Cancelar notificaciones
             </Text>
           </TouchableOpacity>
         )}
       </View>
 
-      {patient.nextControlDate && (
+      {/* Botón Guardar / Agregar */}
+      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+        <Ionicons name="checkmark-circle" size={24} color="white" />
+        <Text style={styles.saveButtonText}>
+          {editingAppointmentId ? "Guardar Cambios de Cita" : "+ Programar Cita"}
+        </Text>
+      </TouchableOpacity>
+
+      {/* Quitar todas las citas si el paciente tiene alguna */}
+      {activeAppointments.length > 0 && (
         <TouchableOpacity
           style={styles.clearDateButton}
           onPress={() => {
             dialog.confirm(
-              "Quitar Cita",
-              '¿Estás seguro de quitar la cita actual? El paciente quedará "Sin Cita Agendada".',
+              "Quitar Todas las Citas",
+              '¿Estás seguro de quitar todas las citas de este paciente? Quedará en estado "Sin Cita Agendada".',
               async () => {
-                updatePatient(patient.id, { nextControlDate: undefined });
+                updatePatient(patient.id, {
+                  appointments: [],
+                  nextControlDate: undefined,
+                });
                 await NotificationService.cancelAppointmentNotification(
-                  patient.id,
+                  patient.id
                 );
                 router.back();
               },
@@ -449,85 +682,199 @@ export default function ModifyControl() {
             );
           }}
         >
-          <Ionicons name="trash-outline" size={24} color={Colors.danger} />
+          <Ionicons name="trash-outline" size={20} color={colors.danger} />
           <Text style={styles.clearDateButtonText}>
-            Quitar Cita (Marcar &quot;Sin Cita&quot;)
+            Quitar Todas las Citas
           </Text>
         </TouchableOpacity>
       )}
-
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Ionicons name="checkmark-circle" size={24} color="white" />
-        <Text style={styles.saveButtonText}>Guardar y Notificar</Text>
-      </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.cancelButton}
         onPress={() => router.back()}
       >
-        <Text style={styles.cancelButtonText}>Cancelar</Text>
+        <Text style={styles.cancelButtonText}>Volver</Text>
       </TouchableOpacity>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   contentContainer: {
-    padding: 24,
+    padding: 16,
+    paddingBottom: 40,
   },
   header: {
     alignItems: "center",
-    marginBottom: 32,
+    marginBottom: 16,
   },
   iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.primary + "20",
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary + "15",
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: Colors.text,
     marginBottom: 8,
   },
+  title: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: colors.text,
+    marginBottom: 4,
+  },
   subtitle: {
-    fontSize: 18,
-    color: Colors.textSecondary,
+    fontSize: 16,
+    color: colors.textSecondary,
+    fontWeight: "500",
   },
   card: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
+    padding: 16,
+    marginBottom: 14,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.text,
+  },
+  cancelEditLink: {
+    fontSize: 13,
+    color: colors.danger,
     fontWeight: "600",
-    color: Colors.text,
-    marginBottom: 16,
+  },
+  newApptButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primary + "12",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  newApptButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.primary,
+  },
+  appointmentItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  appointmentItemEditing: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + "08",
+  },
+  appointmentLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
+  },
+  appointmentDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.textSecondary,
+  },
+  appointmentDateText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.text,
+    textTransform: "capitalize",
+  },
+  appointmentReasonText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  appointmentActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  itemActionButton: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: colors.card,
+  },
+  itemActionButtonActive: {
+    backgroundColor: colors.primary + "20",
+  },
+  reasonInput: {
+    backgroundColor: colors.background,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  chilsScroll: {
+    marginBottom: 12,
+  },
+  chipsContainer: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  Chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chipText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: "500",
+  },
+  chipTextActive: {
+    color: "white",
+    fontWeight: "600",
   },
   dateButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
-    backgroundColor: Colors.background,
+    padding: 14,
+    backgroundColor: colors.background,
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.primary + "30",
+    borderWidth: 1.5,
+    borderColor: colors.primary + "25",
   },
   dateButtonContent: {
     flexDirection: "row",
@@ -540,27 +887,23 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 4,
+    fontWeight: "500",
   },
   dateText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     textTransform: "capitalize",
   },
   separator: {
     height: 1,
-    backgroundColor: Colors.background,
-    marginVertical: 8,
-  },
-  timeText: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginTop: 2,
+    backgroundColor: colors.background,
+    marginVertical: 10,
   },
   doneButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     padding: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -580,60 +923,66 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   notificationTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    color: Colors.text,
-    marginBottom: 4,
+    color: colors.text,
+    marginBottom: 2,
   },
   notificationSubtitle: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
   },
   cancelNotificationButton: {
     marginTop: 12,
-    padding: 12,
-    backgroundColor: Colors.danger + "10",
+    padding: 10,
+    backgroundColor: colors.danger + "10",
     borderRadius: 8,
     alignItems: "center",
   },
   cancelNotificationText: {
-    color: Colors.danger,
+    color: colors.danger,
     fontWeight: "600",
+    fontSize: 13,
   },
   saveButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     flexDirection: "row",
-    padding: 18,
+    padding: 16,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 8,
+    marginTop: 4,
     gap: 8,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveButtonText: {
     color: "white",
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "bold",
   },
   cancelButton: {
-    padding: 16,
+    padding: 14,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 4,
   },
   cancelButtonText: {
-    color: Colors.danger,
-    fontSize: 16,
+    color: colors.textSecondary,
+    fontSize: 15,
     fontWeight: "600",
   },
   errorText: {
     fontSize: 18,
-    color: Colors.danger,
+    color: colors.danger,
     textAlign: "center",
     marginBottom: 20,
   },
   backButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     padding: 16,
     borderRadius: 12,
     alignItems: "center",
@@ -644,21 +993,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   clearDateButton: {
-    backgroundColor: "#FFE5E5",
+    backgroundColor: colors.surface,
     flexDirection: "row",
-    padding: 16,
+    padding: 14,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
-    marginTop: 8,
+    marginTop: 10,
     gap: 8,
     borderWidth: 1,
-    borderColor: Colors.danger,
+    borderColor: colors.danger + "40",
   },
   clearDateButtonText: {
-    color: Colors.danger,
-    fontSize: 16,
+    color: colors.danger,
+    fontSize: 15,
     fontWeight: "bold",
   },
   treatmentTypeContainer: {
@@ -669,33 +1017,33 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "column",
     alignItems: "center",
-    padding: 16,
-    backgroundColor: Colors.background,
+    padding: 14,
+    backgroundColor: colors.background,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: Colors.border,
-    gap: 8,
+    borderColor: colors.border,
+    gap: 6,
   },
   treatmentTypeButtonActive: {
-    backgroundColor: Colors.primary + "10",
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary + "10",
+    borderColor: colors.primary,
   },
   treatmentTypeText: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   treatmentTypeTextActive: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   frequencyContainer: {
-    marginTop: 16,
-    gap: 12,
+    marginTop: 14,
+    gap: 8,
   },
   frequencyLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   frequencyButtons: {
     flexDirection: "row",
@@ -703,28 +1051,23 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   frequencyButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    backgroundColor: Colors.background,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: colors.background,
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: Colors.border,
+    borderWidth: 1.5,
+    borderColor: colors.border,
   },
   frequencyButtonActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   frequencyButtonText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   frequencyButtonTextActive: {
     color: "white",
-  },
-  frequencyHint: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontStyle: "italic",
   },
 });

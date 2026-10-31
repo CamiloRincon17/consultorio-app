@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, Switch, TextInput, Modal, ActivityIndicator } from 'react-native';
-import { Colors } from '../shared/constants/Colors';
-import { FormInput, PrimaryButton } from '../shared/components';
-import { Patient, useApp } from '../context/AppContext';
+import { useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform, KeyboardAvoidingView, Switch, TextInput, Modal, ActivityIndicator, Pressable } from 'react-native';
+import { useColors, useThemedStyles, type Palette } from '../shared/theme';
+import { FormInput, PrimaryButton, PhotoGallery } from '../shared/components';
+import { Patient } from '../context/AppContext';
+import { usePatientsStore } from '../features/patients/store';
 import { formatCOPShort, formatInputCOP, parseInputCOP } from '../shared/utils/formatCOP';
 import { toLocalDateString } from '../shared/utils/dateUtils';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useDialog } from '../shared/context/DialogContext';
 import { useFinanceStore } from '../features/finance/store';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PROCEDIMIENTOS_PREDEFINIDOS = [
     { id: 'Restauración dental', nombre: 'Restauración dental', precio: '50000' },
@@ -33,21 +35,43 @@ const PROCEDIMIENTOS_PREDEFINIDOS = [
 
 export default function RegisterPayment() {
     const router = useRouter();
-    const { id } = useLocalSearchParams();
+    const insets = useSafeAreaInsets();
+    const { id, appointmentId: appointmentIdParam, date: dateParam, reason: reasonParam } = useLocalSearchParams();
     const patientParamId = Array.isArray(id) ? id[0] : id;
-    const { patients, addTransaction, addVisit, updatePatient } = useApp();
+    const appointmentIdFromNav = Array.isArray(appointmentIdParam) ? appointmentIdParam[0] : (appointmentIdParam || '');
+    const appointmentDateFromNav = Array.isArray(dateParam) ? dateParam[0] : (dateParam || '');
+    const appointmentReasonFromNav = Array.isArray(reasonParam) ? reasonParam[0] : (reasonParam || '');
+    const patients = usePatientsStore((s) => s.patients);
+  const addVisit = usePatientsStore((s) => s.addVisit);
+  const updatePatient = usePatientsStore((s) => s.updatePatient);
+  const addTransaction = useFinanceStore((s) => s.addTransaction);
     const dialog = useDialog();
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
+
+    const initialPatient = patientParamId ? patients.find(p => p.id === patientParamId) : null;
 
     const [isRegistered, setIsRegistered] = useState(true);
-    const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+    const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialPatient?.id ?? null);
     const [anonymousName, setAnonymousName] = useState('');
 
-    const [amount, setAmount] = useState('');
-    const [procedure, setProcedure] = useState('');
+    const [amount, setAmount] = useState(initialPatient ? formatInputCOP(initialPatient.monthlyFee ?? 0) : '');
+    const [procedure, setProcedure] = useState(appointmentReasonFromNav || (initialPatient ? 'Control Mensual' : ''));
     const [isCustomProcedure, setIsCustomProcedure] = useState(false);
     const [description, setDescription] = useState('Consulta/Tratamiento');
+    const [photos, setPhotos] = useState<string[]>([]);
 
-    const [date, setDate] = useState(new Date());
+    const parseNavDate = (navDate: string): Date => {
+        if (!navDate) return new Date();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(navDate)) {
+            const [y, m, d] = navDate.split('-').map(Number);
+            return new Date(y, m - 1, d, 12, 0, 0);
+        }
+        const parsed = new Date(navDate);
+        return isNaN(parsed.getTime()) ? new Date() : parsed;
+    };
+
+    const [date, setDate] = useState<Date>(() => parseNavDate(appointmentDateFromNav));
     const [showDatePicker, setShowDatePicker] = useState(false);
 
     const [showPatientPicker, setShowPatientPicker] = useState(false);
@@ -58,6 +82,38 @@ export default function RegisterPayment() {
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
+
+    // Actualizar fecha y procedimiento si cambian los parámetros de navegación
+    const [prevAppointmentDate, setPrevAppointmentDate] = useState(appointmentDateFromNav);
+    if (appointmentDateFromNav !== prevAppointmentDate) {
+        setPrevAppointmentDate(appointmentDateFromNav);
+        if (appointmentDateFromNav) {
+            setDate(parseNavDate(appointmentDateFromNav));
+        }
+    }
+
+    const [prevAppointmentReason, setPrevAppointmentReason] = useState(appointmentReasonFromNav);
+    if (appointmentReasonFromNav !== prevAppointmentReason) {
+        setPrevAppointmentReason(appointmentReasonFromNav);
+        if (appointmentReasonFromNav) {
+            setProcedure(appointmentReasonFromNav);
+        }
+    }
+
+    // Si los pacientes cargaron después del montaje inicial y venía un patientParamId
+    const [prevPatientParamId, setPrevPatientParamId] = useState<string | null>(initialPatient ? patientParamId : null);
+    if (patientParamId && !selectedPatientId && patientParamId !== prevPatientParamId && patients.length > 0) {
+        const patient = patients.find(p => p.id === patientParamId);
+        if (patient) {
+            setPrevPatientParamId(patientParamId);
+            setSelectedPatientId(patient.id);
+            setAmount(formatInputCOP(patient.monthlyFee ?? 0));
+            if (!appointmentReasonFromNav) {
+                setProcedure('Control Mensual');
+            }
+            setIsCustomProcedure(false);
+        }
+    }
 
     // Suscribirse al estado de sincronización de la última transacción creada
     const lastTransactionSyncStatus = useFinanceStore((state) => {
@@ -73,35 +129,26 @@ export default function RegisterPayment() {
 
     const filteredPatients = useMemo(() => {
         if (!searchQuery.trim()) return patients;
-        return patients.filter(p => 
+        return patients.filter(p =>
             p.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
     }, [patients, searchQuery]);
 
     const filteredProcedures = useMemo(() => {
         if (!searchProcedureQuery.trim()) return PROCEDIMIENTOS_PREDEFINIDOS;
-        return PROCEDIMIENTOS_PREDEFINIDOS.filter(p => 
+        return PROCEDIMIENTOS_PREDEFINIDOS.filter(p =>
             p.nombre.toLowerCase().includes(searchProcedureQuery.toLowerCase())
         );
     }, [searchProcedureQuery]);
 
-    const handleSelectPatient = useCallback((patient: Patient) => {
+    const handleSelectPatient = (patient: Patient) => {
         setIsRegistered(true);
         setSelectedPatientId(patient.id);
         setAmount(formatInputCOP(patient.monthlyFee ?? 0));
         setProcedure('Control Mensual');
         setIsCustomProcedure(false);
         setShowPatientPicker(false);
-    }, []);
-
-    useEffect(() => {
-        if (patientParamId && !selectedPatientId && patients.length > 0) {
-            const patient = patients.find(p => p.id === patientParamId);
-            if (patient) {
-                handleSelectPatient(patient);
-            }
-        }
-    }, [patientParamId, patients, selectedPatientId, handleSelectPatient]);
+    };
 
     const handleSave = () => {
         const finalPatientName = isRegistered ? selectedPatient?.name : anonymousName;
@@ -130,7 +177,8 @@ export default function RegisterPayment() {
                 treatment: description || 'Pago registrado',
                 cost: numericAmount,
                 paid: true,
-                notes: 'Generado automáticamente desde Registrar Pago'
+                notes: 'Generado automáticamente desde Registrar Pago',
+                photos: photos.length > 0 ? photos : undefined,
             });
 
             // Capturar el ID de la transacción recién creada para mostrar su estado de sync
@@ -141,14 +189,45 @@ export default function RegisterPayment() {
                 if (newest) setLastTransactionId(newest.id);
             }, 50);
 
-            // Si es ortodoncia, reasignar cita al siguiente mes
-            const paidPatient = patients.find(p => p.id === selectedPatientId);
-            if (paidPatient?.treatmentType === 'ortodoncia' && paidPatient.nextControlDate) {
-                const current = new Date(paidPatient.nextControlDate);
-                const nextMonth = new Date(current);
-                nextMonth.setMonth(nextMonth.getMonth() + 1);
+            // Eliminar la cita correcta:
+            // 1. Si venimos con appointmentIdFromNav, eliminamos ESA cita exacta.
+            // 2. Si no, buscamos la cita que coincida exactamente con la fecha del cobro (localDateStr).
+            // 3. Fallback: la cita más cercana a la fecha del cobro.
+            const patientsState = usePatientsStore.getState();
+            const paidPatient = patientsState.patients.find(p => p.id === selectedPatientId);
+            if (paidPatient) {
+                const scheduledAppts = (paidPatient.appointments || [])
+                    .filter(a => a.status === 'scheduled' || !a.status);
+
+                let apptToDelete = appointmentIdFromNav 
+                    ? scheduledAppts.find(a => a.id === appointmentIdFromNav)
+                    : undefined;
+
+                if (!apptToDelete && scheduledAppts.length > 0) {
+                    // Primero buscar coincidencia exacta por fecha
+                    apptToDelete = scheduledAppts.find(a => toLocalDateString(a.date) === localDateStr);
+
+                    // Si no coincide exactamente, buscar la más cercana
+                    if (!apptToDelete) {
+                        const visitDateMs = new Date(localDateStr + 'T12:00:00').getTime();
+                        apptToDelete = scheduledAppts.reduce((prev, curr) => {
+                            const diffPrev = Math.abs(new Date(prev.date).getTime() - visitDateMs);
+                            const diffCurr = Math.abs(new Date(curr.date).getTime() - visitDateMs);
+                            return diffCurr < diffPrev ? curr : prev;
+                        });
+                    }
+                }
+
+                if (apptToDelete) {
+                    patientsState.deleteAppointment(selectedPatientId, apptToDelete.id);
+                } else if (paidPatient.nextControlDate && toLocalDateString(paidPatient.nextControlDate) === localDateStr) {
+                    // Para pacientes sin array appointments pero con nextControlDate en la misma fecha
+                    updatePatient(selectedPatientId, {
+                        nextControlDate: undefined,
+                    });
+                }
+
                 updatePatient(selectedPatientId, {
-                    nextControlDate: nextMonth.toISOString(),
                     lastAppointmentDate: new Date().toISOString(),
                 });
             }
@@ -180,14 +259,20 @@ export default function RegisterPayment() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={styles.container}
         >
-            <ScrollView contentContainerStyle={styles.form}>
+            <ScrollView
+                contentContainerStyle={[
+                    styles.form,
+                    { paddingBottom: Math.max(insets.bottom + 48, 64) }
+                ]}
+                keyboardShouldPersistTaps="handled"
+            >
 
                 <View style={styles.switchContainer}>
                     <Text style={styles.label}>¿Paciente Registrado?</Text>
                     <Switch
                         value={isRegistered}
                         onValueChange={setIsRegistered}
-                        trackColor={{ false: Colors.border, true: Colors.success }}
+                        trackColor={{ false: colors.border, true: colors.success }}
                     />
                 </View>
 
@@ -201,7 +286,7 @@ export default function RegisterPayment() {
                             <Text style={selectedPatient ? styles.selectorText : styles.placeholderText}>
                                 {selectedPatient ? selectedPatient.name : 'Buscar en lista...'}
                             </Text>
-                            <Ionicons name="chevron-down" size={20} color={Colors.textSecondary} />
+                            <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                         </TouchableOpacity>
                     </View>
                 ) : (
@@ -214,7 +299,7 @@ export default function RegisterPayment() {
                 )}
 
                 <View style={styles.inputGroup}>
-                    <Text style={styles.label}>Procedimiento / Motivo</Text>
+                    <Text style={styles.label}>Procedimiento </Text>
                     <TouchableOpacity
                         style={styles.selector}
                         onPress={() => setShowProcedurePicker(true)}
@@ -222,7 +307,7 @@ export default function RegisterPayment() {
                         <Text style={procedure || isCustomProcedure ? styles.selectorText : styles.placeholderText}>
                             {isCustomProcedure ? 'Otro (Personalizado)' : (procedure || 'Seleccionar procedimiento...')}
                         </Text>
-                        <Ionicons name="chevron-down" size={20} color={Colors.textSecondary} />
+                        <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                     {isCustomProcedure && (
                         <TextInput
@@ -237,7 +322,7 @@ export default function RegisterPayment() {
                 <FormInput
                     label="Monto a Cobrar (COP)"
                     style={styles.amountInput}
-                    placeholder="ej. 150.000"
+                    placeholder=""
                     keyboardType="numeric"
                     value={amount}
                     onChangeText={(val) => setAmount(formatInputCOP(val))}
@@ -245,16 +330,17 @@ export default function RegisterPayment() {
 
                 <View style={styles.datePickerContainer}>
                     <Text style={styles.dateLabel}>Fecha del Movimiento</Text>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                         style={styles.dateSelector}
                         onPress={() => setShowDatePicker(true)}
-                    >
-                        <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                    ><View style={styles.iconCircle}>
+                            <Ionicons name="calendar" size={32} color={colors.primary} />
+                        </View>
                         <Text style={styles.dateText}>
-                            {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
+                            Fecha: {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
                         </Text>
                     </TouchableOpacity>
-                    
+
                     {showDatePicker && (
                         <DateTimePicker
                             value={date}
@@ -275,6 +361,17 @@ export default function RegisterPayment() {
                     onChangeText={setDescription}
                 />
 
+                {/* Sección de Fotografías del Procedimiento */}
+                <View style={styles.card}>
+                    <PhotoGallery
+                        photos={photos}
+                        onAddPhoto={(newUrl) => setPhotos((prev) => [...prev, newUrl])}
+                        onDeletePhoto={(delUrl) => setPhotos((prev) => prev.filter((p) => p !== delUrl))}
+                        patientId={selectedPatientId || 'temp'}
+                        title="Fotografías del Procedimiento (Opcional)"
+                    />
+                </View>
+
                 <PrimaryButton
                     label="Registrar Ingreso"
                     variant="success"
@@ -284,16 +381,20 @@ export default function RegisterPayment() {
 
             {/* Patient Picker Modal */}
             <Modal visible={showPatientPicker} animationType="slide" transparent onRequestClose={() => setShowPatientPicker(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowPatientPicker(false)}
+                >
+                    <Pressable style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Seleccionar Paciente</Text>
                             <TouchableOpacity onPress={() => setShowPatientPicker(false)}>
-                                <Ionicons name="close" size={24} color={Colors.text} />
+                                <Ionicons name="close" size={24} color={colors.text} />
                             </TouchableOpacity>
                         </View>
                         <View style={styles.searchContainer}>
-                            <Ionicons name="search" size={20} color={Colors.textSecondary} style={styles.searchIcon} />
+                            <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
                             <TextInput
                                 style={styles.searchInput}
                                 placeholder="Buscar por nombre..."
@@ -302,7 +403,7 @@ export default function RegisterPayment() {
                                 autoCapitalize="words"
                             />
                         </View>
-                        <ScrollView style={styles.patientList} contentContainerStyle={{ paddingBottom: 60 }}>
+                        <ScrollView style={styles.patientList} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 60 }}>
                             {filteredPatients.map(patient => (
                                 <TouchableOpacity
                                     key={patient.id}
@@ -317,21 +418,25 @@ export default function RegisterPayment() {
                                 <Text style={styles.emptyText}>No hay pacientes registrados.</Text>
                             )}
                         </ScrollView>
-                    </View>
-                </View>
+                    </Pressable>
+                </TouchableOpacity>
             </Modal>
             {/* Procedure Picker Modal */}
             <Modal visible={showProcedurePicker} animationType="slide" transparent onRequestClose={() => setShowProcedurePicker(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <TouchableOpacity
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowProcedurePicker(false)}
+                >
+                    <Pressable style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Seleccionar Procedimiento</Text>
                             <TouchableOpacity onPress={() => setShowProcedurePicker(false)}>
-                                <Ionicons name="close" size={24} color={Colors.text} />
+                                <Ionicons name="close" size={24} color={colors.text} />
                             </TouchableOpacity>
                         </View>
                         <View style={styles.searchContainer}>
-                            <Ionicons name="search" size={20} color={Colors.textSecondary} style={styles.searchIcon} />
+                            <Ionicons name="search" size={20} color={colors.textSecondary} style={styles.searchIcon} />
                             <TextInput
                                 style={styles.searchInput}
                                 placeholder="Buscar procedimiento..."
@@ -372,13 +477,13 @@ export default function RegisterPayment() {
                                     setSearchProcedureQuery('');
                                 }}
                             >
-                                <Text style={[styles.patientItemName, {color: Colors.primary}]}>+ Agregar Otro (Personalizado)</Text>
+                                <Text style={[styles.patientItemName, { color: colors.primary }]}>+ Agregar Otro (Personalizado)</Text>
                             </TouchableOpacity>
                         </ScrollView>
-                    </View>
-                </View>
+                    </Pressable>
+                </TouchableOpacity>
             </Modal>
-            
+
             {/* Success Modal */}
             <Modal
                 visible={showSuccessModal}
@@ -390,7 +495,7 @@ export default function RegisterPayment() {
                     <View style={styles.successCard}>
                         {/* Ícono principal */}
                         <View style={styles.successIconCircle}>
-                            <Ionicons name="checkmark-circle" size={56} color={Colors.success} />
+                            <Ionicons name="checkmark-circle" size={56} color={colors.success} />
                         </View>
 
                         <Text style={styles.successTitle}>¡Pago Registrado!</Text>
@@ -402,22 +507,22 @@ export default function RegisterPayment() {
                         <View style={styles.syncStatusBox}>
                             {lastTransactionSyncStatus === 'synced' ? (
                                 <>
-                                    <Ionicons name="cloud-done-outline" size={20} color={Colors.success} />
-                                    <Text style={[styles.syncStatusText, { color: Colors.success }]}>
+                                    <Ionicons name="cloud-done-outline" size={20} color={colors.success} />
+                                    <Text style={[styles.syncStatusText, { color: colors.success }]}>
                                         Subido a la base de datos ✓
                                     </Text>
                                 </>
                             ) : lastTransactionSyncStatus === 'pending' ? (
                                 <>
-                                    <ActivityIndicator size="small" color={Colors.primary} />
-                                    <Text style={[styles.syncStatusText, { color: Colors.primary }]}>
+                                    <ActivityIndicator size="small" color={colors.primary} />
+                                    <Text style={[styles.syncStatusText, { color: colors.primary }]}>
                                         Sincronizando con la nube...
                                     </Text>
                                 </>
                             ) : (
                                 <>
-                                    <Ionicons name="cloud-offline-outline" size={20} color={Colors.textSecondary} />
-                                    <Text style={[styles.syncStatusText, { color: Colors.textSecondary }]}>
+                                    <Ionicons name="cloud-offline-outline" size={20} color={colors.textSecondary} />
+                                    <Text style={[styles.syncStatusText, { color: colors.textSecondary }]}>
                                         Guardado local (sin conexión)
                                     </Text>
                                 </>
@@ -441,21 +546,38 @@ export default function RegisterPayment() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+    StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     form: {
         padding: 24,
         gap: 20,
+    },
+    card: {
+        backgroundColor: colors.card,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    iconCircle: {
+        width: 30,
+        height: 30,
+        borderRadius: 10,
+        backgroundColor: colors.primary + "20",
+        justifyContent: "center",
+        alignItems: "center",
+        marginBottom: 16,
     },
     switchContainer: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: 8,
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         padding: 16,
         borderRadius: 12,
     },
@@ -465,7 +587,7 @@ const styles = StyleSheet.create({
     label: {
         fontSize: 16,
         fontWeight: '600',
-        color: Colors.text,
+        color: colors.text,
     },
     optionsContainer: {
         flexDirection: 'row',
@@ -474,79 +596,80 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     item: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 20,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     itemSelected: {
-        backgroundColor: Colors.success,
-        borderColor: Colors.success,
+        backgroundColor: colors.success,
+        borderColor: colors.success,
     },
     itemText: {
         fontSize: 15,
-        color: Colors.text,
+        color: colors.text,
         fontWeight: '500',
     },
     itemTextSelected: {
         color: 'white',
     },
     selector: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         padding: 16,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
     selectorText: {
         fontSize: 16,
-        color: Colors.text,
+        color: colors.text,
     },
     placeholderText: {
         fontSize: 16,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
     },
     input: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         padding: 16,
         borderRadius: 12,
         fontSize: 16,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     amountInput: {
         fontSize: 32,
         fontWeight: 'bold',
         textAlign: 'center',
-        color: Colors.success,
+        color: colors.success,
     },
     datePickerContainer: {
-        marginBottom: 8,
+        marginBottom: 3,
     },
     dateLabel: {
         fontSize: 16,
         fontWeight: '600',
-        color: Colors.text,
+        color: colors.text,
         marginBottom: 8,
     },
     dateSelector: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
-        backgroundColor: 'white',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: Colors.border,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-start",
         gap: 12,
+        padding: 16,
+        backgroundColor: colors.background,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: colors.primary + "30",
     },
     dateText: {
         fontSize: 16,
-        color: Colors.text,
+        color: colors.text,
         textTransform: 'capitalize',
     },
     modalOverlay: {
@@ -555,7 +678,7 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: '#F2F2F7',
+        backgroundColor: colors.background,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
         maxHeight: '70%',
@@ -566,8 +689,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 16,
         borderBottomWidth: 1,
-        borderBottomColor: Colors.border,
-        backgroundColor: 'white',
+        borderBottomColor: colors.border,
+        backgroundColor: colors.card,
         borderTopLeftRadius: 20,
         borderTopRightRadius: 20,
     },
@@ -579,7 +702,7 @@ const styles = StyleSheet.create({
         padding: 16,
     },
     patientItem: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         padding: 16,
         borderRadius: 12,
         marginBottom: 8,
@@ -587,28 +710,28 @@ const styles = StyleSheet.create({
     patientItemName: {
         fontSize: 16,
         fontWeight: '600',
-        color: Colors.text,
+        color: colors.text,
     },
     patientItemDetail: {
         fontSize: 14,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
     },
     emptyText: {
         textAlign: 'center',
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         marginTop: 20,
         marginBottom: 40,
     },
     searchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         marginHorizontal: 16,
         marginTop: 16,
         paddingHorizontal: 12,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     searchIcon: {
         marginRight: 8,
@@ -617,7 +740,7 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 12,
         fontSize: 16,
-        color: Colors.text,
+        color: colors.text,
     },
     // ─── Success Modal ─────────────────────────────────────────────────────────
     successOverlay: {
@@ -628,7 +751,7 @@ const styles = StyleSheet.create({
         padding: 24,
     },
     successCard: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         borderRadius: 20,
         padding: 32,
         width: '100%',
@@ -645,13 +768,13 @@ const styles = StyleSheet.create({
     successTitle: {
         fontSize: 22,
         fontWeight: 'bold',
-        color: Colors.text,
+        color: colors.text,
         marginBottom: 8,
         textAlign: 'center',
     },
     successSubtitle: {
         fontSize: 15,
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
         textAlign: 'center',
         marginBottom: 20,
     },
@@ -659,14 +782,14 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
         paddingHorizontal: 16,
         paddingVertical: 12,
         borderRadius: 12,
         width: '100%',
         marginBottom: 24,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
     },
     syncStatusText: {
         fontSize: 14,
@@ -674,7 +797,7 @@ const styles = StyleSheet.create({
         flexShrink: 1,
     },
     successButton: {
-        backgroundColor: Colors.success,
+        backgroundColor: colors.success,
         borderRadius: 12,
         paddingVertical: 14,
         paddingHorizontal: 48,

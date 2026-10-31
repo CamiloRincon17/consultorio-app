@@ -13,8 +13,8 @@ import { useRouter, useLocalSearchParams, Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Colors } from "../shared/constants/Colors";
-import { FormInput, PrimaryButton, TimePickerModal } from "../shared/components";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
+import { FormInput, PrimaryButton } from "../shared/components";
 import { useSpecialistStore } from "../features/specialists/store";
 import { useFinanceStore } from "../features/finance/store";
 import { usePatientsStore } from "../features/patients/store";
@@ -111,14 +111,14 @@ export default function RegisterSpecialistBlockScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const dialog = useDialog();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
 
-  const {
-    specialistBlocks,
-    savedDoctors,
-    addSpecialistBlock,
-    updateSpecialistBlock,
-    deleteSpecialistBlock,
-  } = useSpecialistStore();
+  const specialistBlocks = useSpecialistStore((s) => s.specialistBlocks);
+  const savedDoctors = useSpecialistStore((s) => s.savedDoctors);
+  const addSpecialistBlock = useSpecialistStore((s) => s.addSpecialistBlock);
+  const updateSpecialistBlock = useSpecialistStore((s) => s.updateSpecialistBlock);
+  const deleteSpecialistBlock = useSpecialistStore((s) => s.deleteSpecialistBlock);
 
   const patients = usePatientsStore((s) => s.patients);
 
@@ -174,8 +174,6 @@ export default function RegisterSpecialistBlockScreen() {
   
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
-  // El mismo modal rueda se usa en web y móvil
-  const [timePickerTarget, setTimePickerTarget] = useState<"start" | "end" | null>(null);
 
   const [notes, setNotes] = useState(existingBlock?.notes || "");
   // rentalFee se guarda y muestra formateado: "150.000" en pantalla, número en el store
@@ -183,7 +181,11 @@ export default function RegisterSpecialistBlockScreen() {
     existingBlock?.rentalFee ? formatInputCOP(String(Math.round(existingBlock.rentalFee))) : ""
   );
 
-  const { addTransaction, updateTransaction, deleteTransaction } = useFinanceStore();
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  const addTransaction = useFinanceStore((s) => s.addTransaction);
+  const updateTransaction = useFinanceStore((s) => s.updateTransaction);
+  const deleteTransaction = useFinanceStore((s) => s.deleteTransaction);
 
   const toggleDay = (dayId: number) => {
     if (selectedDays.includes(dayId)) {
@@ -216,17 +218,13 @@ export default function RegisterSpecialistBlockScreen() {
   const handleStartTimeChange = (event: any, pickedDate?: Date) => {
     if (Platform.OS === "android") setShowStartTimePicker(false);
     if (event.type === "dismissed") return;
-    if (pickedDate) {
-      setStartTime(dateTo12HourString(pickedDate));
-    }
+    if (pickedDate) setStartTime(dateTo12HourString(pickedDate));
   };
 
   const handleEndTimeChange = (event: any, pickedDate?: Date) => {
     if (Platform.OS === "android") setShowEndTimePicker(false);
     if (event.type === "dismissed") return;
-    if (pickedDate) {
-      setEndTime(dateTo12HourString(pickedDate));
-    }
+    if (pickedDate) setEndTime(dateTo12HourString(pickedDate));
   };
 
   const handleSave = () => {
@@ -360,6 +358,11 @@ export default function RegisterSpecialistBlockScreen() {
     }
   };
 
+  const formattedTime = selectedDate.toLocaleTimeString("es-ES", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   const handleDelete = () => {
     if (!existingBlock) return;
     dialog.confirm(
@@ -384,14 +387,14 @@ export default function RegisterSpecialistBlockScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={Colors.text} />
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>
             {existingBlock ? "Editar Bloque Especialista" : "Reservar Bloque Doctor"}
           </Text>
           {existingBlock ? (
             <TouchableOpacity style={styles.deleteHeaderButton} onPress={handleDelete}>
-              <Ionicons name="trash-outline" size={22} color={Colors.danger} />
+              <Ionicons name="trash-outline" size={22} color={colors.danger} />
             </TouchableOpacity>
           ) : (
             <View style={{ width: 32 }} />
@@ -409,14 +412,14 @@ export default function RegisterSpecialistBlockScreen() {
                 onPress={() => setShowDoctorDropdown(!showDoctorDropdown)}
                 activeOpacity={0.8}
               >
-                <Ionicons name="person-outline" size={18} color={Colors.primary} />
+                <Ionicons name="person-outline" size={18} color={colors.primary} />
                 <Text style={styles.dropdownSelectorText}>
                   {doctorName || "Seleccionar Doctor Guardado..."}
                 </Text>
                 <Ionicons
                   name={showDoctorDropdown ? "chevron-up" : "chevron-down"}
                   size={18}
-                  color={Colors.textSecondary}
+                  color={colors.textSecondary}
                 />
               </TouchableOpacity>
             )}
@@ -430,7 +433,7 @@ export default function RegisterSpecialistBlockScreen() {
                     style={styles.dropdownItem}
                     onPress={() => selectDoctorFromSaved(doc)}
                   >
-                    <Ionicons name="person" size={16} color={Colors.primary} />
+                    <Ionicons name="person" size={16} color={colors.primary} />
                     <Text style={styles.dropdownItemText}>{doc.name}</Text>
                     {doc.specialty ? (
                       <Text style={styles.dropdownItemSub}>({doc.specialty})</Text>
@@ -438,15 +441,15 @@ export default function RegisterSpecialistBlockScreen() {
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity
-                  style={[styles.dropdownItem, { borderTopWidth: 1, borderTopColor: Colors.border }]}
+                  style={[styles.dropdownItem, { borderTopWidth: 1, borderTopColor: colors.border }]}
                   onPress={() => {
                     setDoctorName("");
                     setIsWritingNewDoctor(true);
                     setShowDoctorDropdown(false);
                   }}
                 >
-                  <Ionicons name="create-outline" size={16} color={Colors.primary} />
-                  <Text style={[styles.dropdownItemText, { color: Colors.primary, fontWeight: "700" }]}>
+                  <Ionicons name="create-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.dropdownItemText, { color: colors.primary, fontWeight: "700" }]}>
                     + Escribir nuevo doctor
                   </Text>
                 </TouchableOpacity>
@@ -478,12 +481,12 @@ export default function RegisterSpecialistBlockScreen() {
               onPress={() => setShowSpecialtyDropdown(!showSpecialtyDropdown)}
               activeOpacity={0.8}
             >
-              <Ionicons name="ribbon-outline" size={18} color={Colors.primary} />
+              <Ionicons name="ribbon-outline" size={18} color={colors.primary} />
               <Text style={styles.dropdownSelectorText}>{selectedSpecialty}</Text>
               <Ionicons
                 name={showSpecialtyDropdown ? "chevron-up" : "chevron-down"}
                 size={18}
-                color={Colors.textSecondary}
+                color={colors.textSecondary}
               />
             </TouchableOpacity>
 
@@ -505,7 +508,7 @@ export default function RegisterSpecialistBlockScreen() {
                     <Ionicons
                       name={selectedSpecialty === spec ? "checkmark-circle" : "ellipse-outline"}
                       size={16}
-                      color={selectedSpecialty === spec ? Colors.primary : Colors.textSecondary}
+                      color={selectedSpecialty === spec ? colors.primary : colors.textSecondary}
                     />
                     <Text
                       style={[
@@ -560,50 +563,115 @@ export default function RegisterSpecialistBlockScreen() {
             ))}
           </View>
 
-          {/* Selección de Horas — Reloj tipo Rueda (igual al celular), web y móvil */}
-          <Text style={styles.sectionLabel}>Horas de Cita (Formato 12H AM/PM)</Text>
-          <View style={styles.timeRow}>
-            {/* Hora Inicio */}
-            <TouchableOpacity
-              style={[styles.timeBox, { flex: 1 }]}
-              onPress={() => setTimePickerTarget("start")}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.timeBoxLabel}>⏱ Hora Inicio</Text>
-              <View style={styles.timeValueRow}>
-                <Ionicons name="time-outline" size={18} color={Colors.primary} />
-                <Text style={styles.timeBoxValue}>{startTime}</Text>
-                <Ionicons name="chevron-down" size={14} color={Colors.primary} />
-              </View>
-            </TouchableOpacity>
+          {/* Selección de Horas */}
+          <Text style={styles.sectionLabel}>Horas de Cita y fecha</Text>
 
-            {/* Hora Fin */}
-            <TouchableOpacity
-              style={[styles.timeBox, { flex: 1 }]}
-              onPress={() => setTimePickerTarget("end")}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.timeBoxLabel}>⏹ Hora Fin</Text>
-              <View style={styles.timeValueRow}>
-                <Ionicons name="time-outline" size={18} color={Colors.primary} />
-                <Text style={styles.timeBoxValue}>{endTime}</Text>
-                <Ionicons name="chevron-down" size={14} color={Colors.primary} />
+          {/* Hora Inicio */} 
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => setShowStartTimePicker(true)}
+          >
+            <View style={styles.dateButtonContent}>
+              <Ionicons name="time-outline" size={24} color={colors.primary} />
+              <View style={styles.dateTextContainer}>
+                <Text style={styles.label}>Hora Inicio</Text>
+                <Text style={styles.dateText}>{startTime}</Text>
               </View>
-            </TouchableOpacity>
-          </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
 
-          {/* Modal de Rueda tipo Celular — para ambos campos */}
-          <TimePickerModal
-            visible={timePickerTarget !== null}
-            initialTime={timePickerTarget === "start" ? startTime : endTime}
-            title={timePickerTarget === "start" ? "Hora de Inicio" : "Hora de Fin"}
-            onConfirm={(t) => {
-              if (timePickerTarget === "start") setStartTime(t);
-              else setEndTime(t);
-              setTimePickerTarget(null);
-            }}
-            onCancel={() => setTimePickerTarget(null)}
-          />
+          <View style={styles.separator} />
+
+          {/* Hora Fin */}
+          <TouchableOpacity
+            style={styles.dateButton}
+            onPress={() => setShowEndTimePicker(true)}
+          >
+            <View style={styles.dateButtonContent}>
+              <Ionicons name="time-outline" size={24} color={colors.primary} />
+              <View style={styles.dateTextContainer}>
+                <Text style={styles.label}>Hora Fin</Text>
+                <Text style={styles.dateText}>{endTime}</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {/* Picker nativo — Hora Inicio */}
+          {showStartTimePicker && (
+            <DateTimePicker
+              value={parse12HourToDate(startTime)}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={handleStartTimeChange}
+            />
+          )}
+
+          {/* Picker nativo — Hora Fin */}
+          {showEndTimePicker && (
+            <DateTimePicker
+              value={parse12HourToDate(endTime)}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={handleEndTimeChange}
+            />
+          )}
+              {Platform.OS === "web" ? (
+                <View style={styles.datePickerButton}>
+                  <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                  <TextInput
+                    style={[styles.webInputText, { fontSize: 14 }]}
+                    value={singleDateStr}
+                    onChangeText={setSingleDateStr}
+                    placeholder="AAAA-MM-DD"
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={24} color={colors.primary} />
+                  <Text style={styles.datePickerText}>
+                    {singleDate.toLocaleDateString("es-ES", {
+                      weekday: "long",
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {Platform.OS !== "web" && showDatePicker && (
+                <DateTimePicker
+                  value={singleDate}
+                  mode="date"
+                  display="default"
+                  locale="es-ES"
+                  onChange={(event, picked) => {
+                    if (Platform.OS === "android") setShowDatePicker(false);
+                    if (picked) {
+                      setSingleDate(picked);
+                      setSingleDateStr(toLocalDateString(picked));
+                    }
+                  }}
+                />
+              )}
+
+          {/* Botón Listo para iOS */}
+          {Platform.OS === "ios" && (showStartTimePicker || showEndTimePicker) && (
+            <TouchableOpacity
+              style={styles.doneButton}
+              onPress={() => {
+                setShowStartTimePicker(false);
+                setShowEndTimePicker(false);
+              }}
+            >
+              <Text style={styles.doneButtonText}>Listo</Text>
+            </TouchableOpacity>
+          )}
 
           {/* Switch Recurrente vs Fecha Única (Apagado por defecto) */}
           <View style={styles.switchCard}>
@@ -618,8 +686,8 @@ export default function RegisterSpecialistBlockScreen() {
             <Switch
               value={isRecurring}
               onValueChange={setIsRecurring}
-              trackColor={{ false: "#D1D5DB", true: Colors.primary + "40" }}
-              thumbColor={isRecurring ? Colors.primary : "#F3F4F6"}
+              trackColor={{ false: "#D1D5DB", true: colors.primary + "40" }}
+              thumbColor={isRecurring ? colors.primary : "#F3F4F6"}
             />
           </View>
 
@@ -642,62 +710,19 @@ export default function RegisterSpecialistBlockScreen() {
                         {day.name}
                       </Text>
                     </TouchableOpacity>
+                    
                   );
                 })}
               </View>
             </View>
           ) : (
-            /* Selector de fecha única */
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionLabel}>Fecha Específica</Text>
-              {Platform.OS === "web" ? (
-                <View style={styles.datePickerButton}>
-                  <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
-                  <TextInput
-                    style={[styles.webInputText, { fontSize: 14 }]}
-                    value={singleDateStr}
-                    onChangeText={setSingleDateStr}
-                    placeholder="AAAA-MM-DD"
-                  />
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={styles.datePickerButton}
-                  onPress={() => setShowDatePicker(true)}
-                >
-                  <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
-                  <Text style={styles.datePickerText}>
-                    {singleDate.toLocaleDateString("es-ES", {
-                      weekday: "long",
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  </Text>
-                </TouchableOpacity>
-              )}
-
-              {Platform.OS !== "web" && showDatePicker && (
-                <DateTimePicker
-                  value={singleDate}
-                  mode="date"
-                  display="default"
-                  onChange={(event, picked) => {
-                    if (Platform.OS === "android") setShowDatePicker(false);
-                    if (picked) {
-                      setSingleDate(picked);
-                      setSingleDateStr(toLocalDateString(picked));
-                    }
-                  }}
-                />
-              )}
-            </View>
+            <View></View>
           )}
 
           {/* Alquiler / Cobro Consultorio (Opcional) */}
           <FormInput
             label="Cobro por Uso del Consultorio "
-            placeholder="ej. 150.000"
+            placeholder=""
             value={rentalFeeDisplay}
             onChangeText={(text) => setRentalFeeDisplay(formatInputCOP(text))}
             keyboardType="numeric"
@@ -726,10 +751,26 @@ export default function RegisterSpecialistBlockScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
+  },
+  dateTextContainer: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  label: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  dateText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: colors.text,
+    textTransform: "capitalize",
   },
   header: {
     flexDirection: "row",
@@ -737,9 +778,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   backButton: {
     padding: 6,
@@ -750,10 +791,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: Colors.text,
+    color: colors.text,
   },
   scrollContent: {
     padding: 16,
+    paddingBottom: 64,
     gap: 12,
   },
   sectionContainer: {
@@ -762,7 +804,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 6,
     marginTop: 4,
   },
@@ -770,9 +812,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 14,
@@ -781,14 +823,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginLeft: 10,
   },
   dropdownMenu: {
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     marginTop: 4,
     elevation: 3,
     shadowColor: "#000",
@@ -804,23 +846,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border + "40",
+    borderBottomColor: colors.border + "40",
   },
   dropdownItemActive: {
-    backgroundColor: Colors.primary + "15",
+    backgroundColor: colors.primary + "15",
   },
   dropdownItemText: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.text,
+    color: colors.text,
   },
   dropdownItemTextActive: {
     fontWeight: "700",
-    color: Colors.primary,
+    color: colors.primary,
   },
   dropdownItemSub: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   presetRow: {
     flexDirection: "row",
@@ -829,9 +871,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   presetChip: {
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -839,20 +881,20 @@ const styles = StyleSheet.create({
     minWidth: "45%",
   },
   presetChipActive: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary + "15",
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + "15",
   },
   presetChipText: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   presetChipTextActive: {
-    color: Colors.primary,
+    color: colors.primary,
   },
   presetChipSub: {
     fontSize: 11,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   timeRow: {
@@ -865,15 +907,15 @@ const styles = StyleSheet.create({
     position: "relative",
   },
   timeBox: {
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     borderRadius: 10,
     padding: 12,
   },
   timeBoxLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   timeValueRow: {
@@ -884,13 +926,13 @@ const styles = StyleSheet.create({
   timeBoxValue: {
     fontSize: 15,
     fontWeight: "700",
-    color: Colors.text,
+    color: colors.text,
   },
   dropdownTimeMenu: {
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     marginTop: 4,
     elevation: 4,
     shadowColor: "#000",
@@ -903,33 +945,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border + "40",
+    borderBottomColor: colors.border + "40",
   },
   webInputText: {
     fontSize: 16,
     fontWeight: "700",
-    color: Colors.text,
+    color: colors.text,
     flex: 1,
     padding: 0,
   },
   switchCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     marginVertical: 4,
   },
   switchTitle: {
     fontSize: 15,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   switchSub: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 2,
   },
   daysContainer: {
@@ -941,38 +983,71 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: Colors.card || "white",
+    backgroundColor: colors.card || "white",
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   dayCircleActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   dayText: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   dayTextActive: {
     color: "#FFFFFF",
   },
+  dateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 16,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    borderWidth: 4,
+    borderColor: colors.primary + "30",
+  },
+  dateButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: colors.background,
+    marginVertical: 2,
+  },
+  doneButton: {
+    backgroundColor: colors.primary,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 12,
+  },
+  doneButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   datePickerButton: {
     flexDirection: "row",
     alignItems: "center",
+    marginVertical: 2,
     gap: 10,
-    backgroundColor: Colors.card || "white",
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 10,
-    padding: 14,
+    backgroundColor: colors.background || "white",
+    borderWidth: 4,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 20,
   },
   datePickerText: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     textTransform: "capitalize",
   },
 });

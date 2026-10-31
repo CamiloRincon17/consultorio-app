@@ -36,6 +36,8 @@ interface SpecialistState {
   markBlockSynced: (id: string) => void;
   addSavedDoctor: (name: string, specialty?: string) => void;
   deleteSavedDoctor: (id: string) => void;
+  /** Marca un doctor guardado como sincronizado con Supabase. */
+  markDoctorSynced: (id: string) => void;
 }
 
 /** Guarda los bloques en AsyncStorage */
@@ -99,8 +101,22 @@ export const useSpecialistStore = create<SpecialistState>((set, get) => ({
   },
 
   setSavedDoctors: (cloudDoctors) => {
-    set({ savedDoctors: cloudDoctors });
-    saveDoctorsToCache(cloudDoctors);
+    const currentState = get();
+    const cloudIds = new Set(cloudDoctors.map((d) => d.id));
+
+    // Preservar doctores locales pendientes que aún no subieron a la nube
+    const pendingLocal = currentState.savedDoctors.filter(
+      (d) => d._syncStatus === 'pending' && !cloudIds.has(d.id)
+    );
+
+    const synced = cloudDoctors.map((d) => ({
+      ...d,
+      _syncStatus: 'synced' as SyncStatus,
+    }));
+
+    const merged = [...pendingLocal, ...synced];
+    set({ savedDoctors: merged });
+    saveDoctorsToCache(merged);
   },
 
   loadFromCache: async () => {
@@ -155,6 +171,15 @@ export const useSpecialistStore = create<SpecialistState>((set, get) => ({
       'insertSavedDoctor',
       [newDoctor],
     );
+  },
+
+  markDoctorSynced: (id: string) => {
+    set((state) => ({
+      savedDoctors: state.savedDoctors.map((d) =>
+        d.id === id ? { ...d, _syncStatus: 'synced' as SyncStatus } : d
+      ),
+    }));
+    saveDoctorsToCache(get().savedDoctors);
   },
 
   deleteSavedDoctor: (id: string) => {

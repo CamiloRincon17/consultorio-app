@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
 // ─── Paleta de colores pastel para avatares ──────────────────────────────────
@@ -40,7 +41,7 @@ interface AvatarProps {
  * Avatar con iniciales del paciente.
  * Color de fondo determinístico basado en el nombre.
  */
-export const AvatarInitials = ({ name, size = 50 }: AvatarProps) => {
+export const AvatarInitials = React.memo(({ name, size = 50 }: AvatarProps) => {
   const bgColor = getColorFromName(name);
   const initials = getInitials(name);
   const fontSize = size * 0.38;
@@ -60,7 +61,7 @@ export const AvatarInitials = ({ name, size = 50 }: AvatarProps) => {
       <Text style={[styles.initials, { fontSize }]}>{initials}</Text>
     </View>
   );
-};
+});
 
 const styles = StyleSheet.create({
   container: {

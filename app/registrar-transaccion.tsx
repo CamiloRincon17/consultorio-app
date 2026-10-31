@@ -1,8 +1,8 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Colors } from '../shared/constants/Colors';
-import { useApp } from '../context/AppContext';
+import { useColors, useThemedStyles, type Palette } from '../shared/theme';
+import { useFinanceStore } from '../features/finance/store';
 import { FormInput, PrimaryButton } from '../shared/components';
 import { useDialog } from '../shared/context/DialogContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -20,8 +20,10 @@ function parseInputCOP(formatted: string): number {
 }
 export default function AddTransaction() {
     const router = useRouter();
-    const { addTransaction } = useApp();
+    const addTransaction = useFinanceStore((s) => s.addTransaction);
     const dialog = useDialog();
+    const colors = useColors();
+    const styles = useThemedStyles(createStyles);
 
     const [type, setType] = useState<'INCOME' | 'EXPENSE'>('INCOME');
     const [amountDisplay, setAmountDisplay] = useState('');
@@ -71,7 +73,7 @@ export default function AddTransaction() {
 
                 <FormInput
                     label="Monto (COP)"
-                    style={[styles.amountInput, { color: type === 'INCOME' ? Colors.success : Colors.danger }]}
+                    style={[styles.amountInput, { color: type === 'INCOME' ? colors.success : colors.danger }]}
                     placeholder="ej. 150.000"
                     keyboardType="numeric"
                     value={amountDisplay}
@@ -92,7 +94,7 @@ export default function AddTransaction() {
                         style={styles.dateSelector}
                         onPress={() => setShowDatePicker(true)}
                     >
-                        <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                        <Ionicons name="calendar-outline" size={20} color={colors.primary} />
                         <Text style={styles.dateText}>
                             {date.toLocaleDateString("es-ES", { year: 'numeric', month: 'long', day: 'numeric' })}
                         </Text>
@@ -121,10 +123,11 @@ export default function AddTransaction() {
     );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+    StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: Colors.background,
+        backgroundColor: colors.background,
     },
     form: {
         padding: 24,
@@ -132,7 +135,7 @@ const styles = StyleSheet.create({
     },
     segmentedContainer: {
         flexDirection: 'row',
-        backgroundColor: '#E5E5EA',
+        backgroundColor: colors.surface,
         borderRadius: 12,
         padding: 4,
     },
@@ -143,14 +146,14 @@ const styles = StyleSheet.create({
         borderRadius: 8,
     },
     segmentActiveIncome: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
         shadowRadius: 2,
     },
     segmentActiveExpense: {
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.1,
@@ -159,10 +162,10 @@ const styles = StyleSheet.create({
     segmentText: {
         fontSize: 15,
         fontWeight: '600',
-        color: Colors.textSecondary,
+        color: colors.textSecondary,
     },
     segmentTextActive: {
-        color: Colors.text,
+        color: colors.text,
     },
     amountInput: {
         fontSize: 32,
@@ -175,22 +178,22 @@ const styles = StyleSheet.create({
     dateLabel: {
         fontSize: 14,
         fontWeight: '600',
-        color: Colors.text,
+        color: colors.text,
         marginBottom: 8,
     },
     dateSelector: {
         flexDirection: 'row',
         alignItems: 'center',
         padding: 16,
-        backgroundColor: 'white',
+        backgroundColor: colors.card,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: Colors.border,
+        borderColor: colors.border,
         gap: 12,
     },
     dateText: {
         fontSize: 16,
-        color: Colors.text,
+        color: colors.text,
         textTransform: 'capitalize',
     }
 });

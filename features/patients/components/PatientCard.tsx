@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { Colors } from "../../../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../../../shared/theme";
 import { formatCOPShort } from "../../../shared/utils/formatCOP";
 import { AvatarInitials } from "../../../shared/components/AvatarInitials";
 import { Patient } from "../types";
@@ -39,13 +39,15 @@ interface PatientCardProps {
   stats: { totalPaid: number; visitCount: number };
 }
 
-export const PatientCard = ({
+export const PatientCard = React.memo(({
   item,
   isExpanded,
   onToggle,
   stats,
 }: PatientCardProps) => {
   const router = useRouter();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
 
   if (!item || !item.id || !item.name) {
     return null;
@@ -74,6 +76,11 @@ export const PatientCard = ({
 
   const isPending = item._syncStatus === "pending";
 
+  const activeAppointments = (item.appointments || []).filter(
+    (a) => a.status !== 'cancelled' && new Date(a.date) >= new Date(new Date().setHours(0, 0, 0, 0))
+  );
+  const extraAppointmentsCount = activeAppointments.length > 1 ? activeAppointments.length - 1 : 0;
+
   return (
     <View style={[styles.card, isExpanded && styles.cardExpanded, isPending && styles.cardPending]}>
       <TouchableOpacity
@@ -95,7 +102,7 @@ export const PatientCard = ({
               )}
               {isPending && (
                 <View style={styles.pendingBadge}>
-                  <Ionicons name="cloud-offline-outline" size={10} color={Colors.warning} />
+                  <Ionicons name="cloud-offline-outline" size={10} color={colors.warning} />
                   <Text style={styles.pendingBadgeText}>Pendiente</Text>
                 </View>
               )}
@@ -104,18 +111,23 @@ export const PatientCard = ({
               <Ionicons
                 name={hasAppointment ? "calendar" : "alert-circle-outline"}
                 size={14}
-                color={hasAppointment ? Colors.primary : Colors.warning}
+                color={hasAppointment ? colors.primary : colors.warning}
               />
               <Text
                 style={[
                   styles.controlDate,
-                  { color: hasAppointment ? Colors.primary : Colors.warning },
+                  { color: hasAppointment ? colors.primary : colors.warning },
                 ]}
               >
                 {hasAppointment
                   ? ` ${formattedDate} - ${formattedTime}`
                   : " Sin Cita Agendada"}
               </Text>
+              {extraAppointmentsCount > 0 && (
+                <View style={styles.extraApptsBadge}>
+                  <Text style={styles.extraApptsText}>+{extraAppointmentsCount} más</Text>
+                </View>
+              )}
             </View>
           </View>
           <View style={styles.cardRight}>
@@ -123,7 +135,7 @@ export const PatientCard = ({
               {formatCOPShort(item.monthlyFee || 0)}
             </Text>
             {!isPending && (
-              <Ionicons name="cloud-done-outline" size={14} color={Colors.success} style={{ marginTop: 4 }} />
+              <Ionicons name="cloud-done-outline" size={14} color={colors.success} style={{ marginTop: 4 }} />
             )}
           </View>
         </View>
@@ -160,7 +172,7 @@ export const PatientCard = ({
                 })
               }
             >
-              <Ionicons name="time-outline" size={20} color={Colors.primary} />
+              <Ionicons name="time-outline" size={20} color={colors.primary} />
               <Text style={styles.actionText}>Cita</Text>
             </TouchableOpacity>
 
@@ -173,7 +185,7 @@ export const PatientCard = ({
                 })
               }
             >
-              <Ionicons name="list-outline" size={20} color={Colors.success} />
+              <Ionicons name="list-outline" size={20} color={colors.success} />
               <Text style={styles.actionText}>Historial</Text>
             </TouchableOpacity>
 
@@ -189,7 +201,7 @@ export const PatientCard = ({
               <Ionicons
                 name="create-outline"
                 size={20}
-                color={Colors.textSecondary}
+                color={colors.textSecondary}
               />
               <Text style={styles.actionText}>Editar</Text>
             </TouchableOpacity>
@@ -198,11 +210,12 @@ export const PatientCard = ({
       )}
     </View>
   );
-};
+});
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   card: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 12,
     marginBottom: 12,
     shadowColor: "#000",
@@ -216,7 +229,7 @@ const styles = StyleSheet.create({
   },
   cardExpanded: {
     borderWidth: 1,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
   },
   cardHeader: {
     flexDirection: "row",
@@ -227,7 +240,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: Colors.secondary,
+    backgroundColor: colors.secondary,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -249,30 +262,45 @@ const styles = StyleSheet.create({
   patientName: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   dayBadge: {
-    backgroundColor: Colors.primary + "20",
+    backgroundColor: colors.primary + "20",
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.primary,
+    borderColor: colors.primary,
   },
   dayBadgeText: {
     fontSize: 10,
     fontWeight: "700",
-    color: Colors.primary,
+    color: colors.primary,
   },
   detailRow: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
   },
   controlDate: {
     fontSize: 14,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: "500",
     textTransform: "capitalize",
+  },
+  extraApptsBadge: {
+    backgroundColor: colors.primary + "15",
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.primary + "40",
+  },
+  extraApptsText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.primary,
   },
   cardRight: {
     alignItems: "flex-end",
@@ -280,13 +308,13 @@ const styles = StyleSheet.create({
   monthlyFee: {
     fontSize: 16,
     fontWeight: "bold",
-    color: Colors.success,
+    color: colors.success,
   },
   expandedContent: {
     padding: 16,
-    backgroundColor: "#F9F9F9",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderTopColor: "#EEE",
+    borderTopColor: colors.border,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
   },
@@ -299,7 +327,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 4,
     alignItems: "center",
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     padding: 10,
     borderRadius: 8,
     shadowColor: "#000",
@@ -309,13 +337,13 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   statValue: {
     fontSize: 16,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   actionsRow: {
     flexDirection: "row",
@@ -328,35 +356,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     padding: 12,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
     justifyContent: "center",
   },
   actionText: {
-    color: Colors.text,
+    color: colors.text,
     fontWeight: "500",
     fontSize: 14,
   },
   cardPending: {
     borderLeftWidth: 3,
-    borderLeftColor: Colors.warning,
+    borderLeftColor: colors.warning,
   },
   pendingBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: Colors.warning + "15",
+    backgroundColor: colors.warning + "15",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: Colors.warning + "40",
+    borderColor: colors.warning + "40",
   },
   pendingBadgeText: {
     fontSize: 9,
     fontWeight: "700",
-    color: Colors.warning,
+    color: colors.warning,
   },
 });

@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../../shared/theme";
 import { Transaction } from "../../features/finance/types";
 import { useFinanceStore } from "../../features/finance/store";
 import { usePatientsStore } from "../../features/patients/store";
@@ -22,14 +22,14 @@ import { FinanceSkeleton } from "../../shared/components/SkeletonLoader";
 
 export default function FinanceScreen() {
   const router = useRouter();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   const transactions = useFinanceStore((s) => s.transactions);
   const isLoading = useFinanceStore((s) => s.isLoading);
-  const getFinancialSummary = useFinanceStore((s) => s.getFinancialSummary);
   const patients = usePatientsStore((s) => s.patients);
   const userId = useAuthStore((s) => s.user?.id ?? "");
   const refetch = useSyncStore((s) => s.refetch);
   const isSyncing = useSyncStore((s) => s.isSyncing);
-  const summary = getFinancialSummary();
 
   const handleRefresh = useCallback(async () => {
     if (!userId) return;
@@ -55,23 +55,7 @@ export default function FinanceScreen() {
       .filter((t) => t.type === "EXPENSE")
       .reduce((sum, t) => sum + t.amount, 0);
 
-    // Prepare chart data (Daily for current month)
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-    const dailyData = Array.from({ length: daysInMonth }, (_, i) => {
-      const day = i + 1;
-      const dayTrans = currentMonthTransactions.filter(
-        (t) => new Date(t.date).getDate() === day,
-      );
-      const dayIncome = dayTrans
-        .filter((t) => t.type === "INCOME")
-        .reduce((s, t) => s + t.amount, 0);
-      const dayExpense = dayTrans
-        .filter((t) => t.type === "EXPENSE")
-        .reduce((s, t) => s + t.amount, 0);
-      return { day, income: dayIncome, expense: dayExpense };
-    });
-
-    return { income, expenses, dailyData };
+    return { income, expenses };
   }, [transactions]);
 
   const sections = React.useMemo(() => {
@@ -103,20 +87,29 @@ export default function FinanceScreen() {
     }));
   }, [transactions]);
 
-  const renderItem = ({ item }: { item: Transaction }) => {
-    return (
-      <TransactionCard
-        item={item}
-        patients={patients}
-        onPress={() =>
-          router.push({
-            pathname: "/editar-transaccion",
-            params: { id: item.id },
-          })
-        }
-      />
-    );
-  };
+  const handleTransactionPress = useCallback((id: string) => {
+    router.push({ pathname: "/editar-transaccion", params: { id } });
+  }, [router]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: Transaction }) => {
+      return (
+        <TransactionCard
+          item={item}
+          patients={patients}
+          onPress={() => handleTransactionPress(item.id)}
+        />
+      );
+    },
+    [patients, handleTransactionPress]
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section: { title } }: { section: { title: string } }) => (
+      <Text style={styles.sectionHeader}>{title}</Text>
+    ),
+    [styles]
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -134,14 +127,14 @@ export default function FinanceScreen() {
       <View style={styles.balanceContainer}>
         <View style={styles.balanceItem}>
           <Text style={styles.balanceLabel}>Ingreso Mensual</Text>
-          <Text style={[styles.balanceValue, { color: Colors.success }]}>
+          <Text style={[styles.balanceValue, { color: colors.success }]}>
             {formatCOPShort(monthlyStats.income)}
           </Text>
         </View>
         <View style={styles.divider} />
         <View style={styles.balanceItem}>
           <Text style={styles.balanceLabel}>Gasto Mes</Text>
-          <Text style={[styles.balanceValue, { color: Colors.danger }]}>
+          <Text style={[styles.balanceValue, { color: colors.danger }]}>
             {formatCOPShort(monthlyStats.expenses)}
           </Text>
         </View>
@@ -156,9 +149,11 @@ export default function FinanceScreen() {
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        renderSectionHeader={({ section: { title } }) => (
-          <Text style={styles.sectionHeader}>{title}</Text>
-        )}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews={true}
+        renderSectionHeader={renderSectionHeader}
         contentContainerStyle={styles.list}
         refreshControl={
           <RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />
@@ -173,7 +168,7 @@ export default function FinanceScreen() {
             <Ionicons
               name="receipt-outline"
               size={64}
-              color={Colors.textSecondary}
+              color={colors.textSecondary}
             />
             <Text style={styles.emptyText}>Sin movimientos</Text>
             <Text style={styles.emptySubtext}>
@@ -188,27 +183,28 @@ export default function FinanceScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   title: {
     fontSize: 28,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   linkText: {
-    color: Colors.primary,
+    color: colors.primary,
     fontSize: 14,
     fontWeight: "600",
     marginTop: 4,
@@ -216,13 +212,13 @@ const styles = StyleSheet.create({
   sectionHeader: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
     marginTop: 16,
     marginBottom: 8,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   addButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 8,
@@ -236,7 +232,7 @@ const styles = StyleSheet.create({
   },
   balanceContainer: {
     flexDirection: "row",
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     margin: 16,
     borderRadius: 16,
     padding: 16,
@@ -252,8 +248,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   balanceLabel: {
-    fontSize: 14,
-    color: Colors.textSecondary,
+    fontSize: 12,
+    color: colors.textSecondary,
     marginBottom: 4,
   },
   balanceValue: {
@@ -263,7 +259,7 @@ const styles = StyleSheet.create({
   divider: {
     width: 1,
     height: "80%",
-    backgroundColor: Colors.border,
+    backgroundColor: colors.border,
   },
   list: {
     padding: 16,
@@ -272,7 +268,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginBottom: 8,
   },
   emptyContainer: {
@@ -283,16 +279,16 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 8,
   },
   chartSection: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     marginHorizontal: 16,
     marginBottom: 16,
     borderRadius: 16,
@@ -312,7 +308,7 @@ const styles = StyleSheet.create({
   chartTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
   },
   chartScroll: {
     paddingBottom: 8,
@@ -331,7 +327,7 @@ const styles = StyleSheet.create({
     height: 80,
     width: "100%",
     justifyContent: "flex-end",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: colors.surface,
     borderRadius: 4,
     overflow: "hidden",
   },
@@ -341,20 +337,20 @@ const styles = StyleSheet.create({
   },
   dayLabel: {
     fontSize: 10,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 4,
   },
   reportButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     marginHorizontal: 16,
     marginBottom: 16,
     padding: 12,
     borderRadius: 12,
     gap: 4,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
   },
 });

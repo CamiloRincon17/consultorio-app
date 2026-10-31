@@ -10,7 +10,7 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../shared/theme";
 import {
     AutoReassignService,
     ReassignmentHistoryEntry,
@@ -19,6 +19,8 @@ import { useDialog } from "../shared/context/DialogContext";
 
 export default function HistorialReasignaciones() {
   const router = useRouter();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   const dialog = useDialog();
   const [history, setHistory] = useState<ReassignmentHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,7 +59,7 @@ export default function HistorialReasignaciones() {
             <Ionicons
               name={isAutomatic ? "timer" : "hand-left"}
               size={24}
-              color={isAutomatic ? Colors.primary : "#FF6B00"}
+              color={isAutomatic ? colors.primary : "#FF6B00"}
             />
             <View style={styles.headerInfo}>
               <Text style={styles.historyTitle}>
@@ -82,7 +84,7 @@ export default function HistorialReasignaciones() {
               styles.badge,
               {
                 backgroundColor: isAutomatic
-                  ? Colors.primary + "20"
+                  ? colors.primary + "20"
                   : "#FF6B0020",
               },
             ]}
@@ -90,7 +92,7 @@ export default function HistorialReasignaciones() {
             <Text
               style={[
                 styles.badgeText,
-                { color: isAutomatic ? Colors.primary : "#FF6B00" },
+                { color: isAutomatic ? colors.primary : "#FF6B00" },
               ]}
             >
               {item.totalCount}{" "}
@@ -107,7 +109,7 @@ export default function HistorialReasignaciones() {
                 <Ionicons
                   name="person"
                   size={16}
-                  color={Colors.textSecondary}
+                  color={colors.textSecondary}
                 />
                 <Text style={styles.patientName}>{patient.name}</Text>
               </View>
@@ -126,7 +128,7 @@ export default function HistorialReasignaciones() {
                     <Ionicons
                       name="arrow-forward"
                       size={16}
-                      color={Colors.textSecondary}
+                      color={colors.textSecondary}
                     />
                   </>
                 ) : (
@@ -151,12 +153,12 @@ export default function HistorialReasignaciones() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Historial de Reasignaciones</Text>
         {history.length > 0 ? (
           <TouchableOpacity onPress={handleClearHistory}>
-            <Ionicons name="trash-outline" size={24} color={Colors.danger} />
+            <Ionicons name="trash-outline" size={24} color={colors.danger} />
           </TouchableOpacity>
         ) : (
           <View style={{ width: 24 }} />
@@ -172,7 +174,7 @@ export default function HistorialReasignaciones() {
           <Ionicons
             name="calendar-outline"
             size={64}
-            color={Colors.textSecondary}
+            color={colors.textSecondary}
           />
           <Text style={styles.emptyText}>Sin historial</Text>
           <Text style={styles.emptySubtext}>
@@ -191,31 +193,32 @@ export default function HistorialReasignaciones() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     padding: 16,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   listContainer: {
     padding: 16,
     gap: 16,
   },
   historyCard: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderRadius: 12,
     padding: 16,
     gap: 12,
@@ -237,12 +240,12 @@ const styles = StyleSheet.create({
   historyTitle: {
     fontSize: 16,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginBottom: 2,
   },
   historyDate: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textTransform: "capitalize",
   },
   badge: {
@@ -259,7 +262,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   patientItem: {
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     padding: 12,
     borderRadius: 8,
     gap: 8,
@@ -272,7 +275,7 @@ const styles = StyleSheet.create({
   patientName: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.text,
+    color: colors.text,
   },
   dateChange: {
     flexDirection: "row",
@@ -282,17 +285,17 @@ const styles = StyleSheet.create({
   },
   previousDate: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textDecorationLine: "line-through",
   },
   newDate: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.primary,
+    color: colors.primary,
   },
   frequency: {
     fontSize: 12,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   emptyState: {
     flex: 1,
@@ -303,13 +306,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.text,
+    color: colors.text,
     marginTop: 16,
     marginBottom: 8,
   },
   emptySubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     textAlign: "center",
     lineHeight: 20,
   },

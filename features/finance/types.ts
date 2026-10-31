@@ -14,6 +14,7 @@ export interface Transaction {
   visitId?: string; // Enlace a la visita asociada
   /** Categoría para agrupar visualmente (ej. 'arriendo_consultorio') */
   category?: string;
+  photos?: string[]; // Fotografías adjuntas al cobro/transacción
   /** Estado de sincronización con Supabase. 'pending' = aún no subido. */
   _syncStatus?: TransactionSyncStatus;
 }

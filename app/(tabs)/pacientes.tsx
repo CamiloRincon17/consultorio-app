@@ -12,11 +12,12 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Colors } from "../../shared/constants/Colors";
+import { useColors, useThemedStyles, type Palette } from "../../shared/theme";
 import { Patient } from "../../features/patients/types";
 import { usePatientsStore } from "../../features/patients/store";
 import { useAuthStore } from "../../features/auth/store";
 import { useSyncStore } from "../../shared/stores/syncStore";
+import { useFinanceStore } from "../../features/finance/store";
 import { PatientCard } from "../../features/patients/components/PatientCard";
 import { PatientListSkeleton } from "../../shared/components/SkeletonLoader";
 import { SyncIndicator } from "../../shared/components/SyncIndicator";
@@ -24,10 +25,12 @@ import { SyncIndicator } from "../../shared/components/SyncIndicator";
 
 export default function PatientsScreen() {
   const router = useRouter();
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   const patients = usePatientsStore((s) => s.patients);
   const isLoading = usePatientsStore((s) => s.isLoading);
   const isFromCache = usePatientsStore((s) => s.isFromCache);
-  const getPatientStats = usePatientsStore((s) => s.getPatientStats);
+  const transactions = useFinanceStore((s) => s.transactions);
   const userId = useAuthStore((s) => s.user?.id ?? "");
   const refetch = useSyncStore((s) => s.refetch);
   const isSyncing = useSyncStore((s) => s.isSyncing);
@@ -35,6 +38,26 @@ export default function PatientsScreen() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<"ALL" | "ORTODONCIA" | "GENERAL" | "SCHEDULED" | "UNSCHEDULED" | "PENDING" | "SYNCED">("ALL");
+
+  // Pre-calcular estadísticas de todos los pacientes en 1 solo pase O(N+M)
+  const patientStatsMap = useMemo(() => {
+    const paidMap = new Map<string, number>();
+    transactions.forEach((t) => {
+      if (t.patientId && t.type === "INCOME") {
+        paidMap.set(t.patientId, (paidMap.get(t.patientId) || 0) + t.amount);
+      }
+    });
+
+    const statsMap = new Map<string, { totalPaid: number; visitCount: number }>();
+    patients.forEach((p) => {
+      statsMap.set(p.id, {
+        totalPaid: paidMap.get(p.id) || 0,
+        visitCount: p.visits?.length || 0,
+      });
+    });
+
+    return statsMap;
+  }, [patients, transactions]);
 
   // Conteos de estado de sync
   const syncCounts = useMemo(() => {
@@ -105,7 +128,7 @@ export default function PatientsScreen() {
 
   const renderPatient = useCallback(
     ({ item }: { item: Patient }) => {
-      const stats = getPatientStats(item.id);
+      const stats = patientStatsMap.get(item.id) || { totalPaid: 0, visitCount: 0 };
       return (
         <PatientCard
           item={item}
@@ -115,7 +138,7 @@ export default function PatientsScreen() {
         />
       );
     },
-    [expandedId, toggleExpand, getPatientStats]
+    [expandedId, toggleExpand, patientStatsMap]
   );
 
   const keyExtractor = useCallback((item: Patient) => item.id, []);
@@ -129,7 +152,7 @@ export default function PatientsScreen() {
             <Text style={styles.countText}>{patients.length} registrados</Text>
             {syncCounts.pending > 0 && (
               <View style={styles.pendingCountBadge}>
-                <Ionicons name="cloud-offline-outline" size={11} color={Colors.warning} />
+                <Ionicons name="cloud-offline-outline" size={11} color={colors.warning} />
                 <Text style={styles.pendingCountText}>
                   {syncCounts.pending} sin subir
                 </Text>
@@ -149,7 +172,7 @@ export default function PatientsScreen() {
       {/* Banner de datos desde caché */}
       {isFromCache && (
         <View style={styles.cacheBanner}>
-          <Ionicons name="phone-portrait-outline" size={14} color={Colors.primary} />
+          <Ionicons name="phone-portrait-outline" size={14} color={colors.primary} />
           <Text style={styles.cacheBannerText}>
             Mostrando datos locales • Sincronizando...
           </Text>
@@ -158,17 +181,17 @@ export default function PatientsScreen() {
 
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={Colors.textSecondary} />
+          <Ionicons name="search" size={20} color={colors.textSecondary} />
           <TextInput
             style={styles.searchInput}
             placeholder="Buscar por nombre..."
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholderTextColor={Colors.textSecondary}
+            placeholderTextColor={colors.textSecondary}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery("")}>
-              <Ionicons name="close-circle" size={20} color={Colors.textSecondary} />
+              <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           )}
         </View>
@@ -218,6 +241,10 @@ export default function PatientsScreen() {
           renderItem={renderPatient}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews={true}
           refreshControl={
             <RefreshControl refreshing={isSyncing} onRefresh={handleRefresh} />
           }
@@ -226,7 +253,7 @@ export default function PatientsScreen() {
               <Ionicons 
                 name={activeFilter === "PENDING" ? "cloud-offline-outline" : "people-outline"} 
                 size={64} 
-                color={Colors.border} 
+                color={colors.border} 
               />
               <Text style={styles.emptyText}>
                 {searchQuery 
@@ -248,13 +275,9 @@ export default function PatientsScreen() {
               </Text>
             </View>
           }
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={7}
         />
       )}
-
-      {/* Floating button for orthodontic reassignment */}
+      {/* reasignacion de pasientes lo oculte por que no se ocupa 
       {patients.some((p) => p && p.treatmentType === "ortodoncia") && (
         <TouchableOpacity
           style={styles.floatingButton}
@@ -263,29 +286,30 @@ export default function PatientsScreen() {
           <Ionicons name="sync" size={24} color="white" />
           <Text style={styles.floatingButtonText}>Reasignar Ortodoncia</Text>
         </TouchableOpacity>
-      )}
+      )}*/}
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   title: {
     fontSize: 28,
     fontWeight: "bold",
-    color: Colors.text,
+    color: colors.text,
   },
   countRow: {
     flexDirection: "row",
@@ -295,13 +319,13 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   pendingCountBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
-    backgroundColor: Colors.warning + "15",
+    backgroundColor: colors.warning + "15",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
@@ -309,10 +333,10 @@ const styles = StyleSheet.create({
   pendingCountText: {
     fontSize: 11,
     fontWeight: "600",
-    color: Colors.warning,
+    color: colors.warning,
   },
   addButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 8,
@@ -329,28 +353,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    backgroundColor: Colors.primary + "10",
+    backgroundColor: colors.primary + "10",
     paddingVertical: 6,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.primary + "20",
+    borderBottomColor: colors.primary + "20",
   },
   cacheBannerText: {
     fontSize: 12,
-    color: Colors.primary,
+    color: colors.primary,
     fontWeight: "500",
   },
   searchContainer: {
-    backgroundColor: "white",
+    backgroundColor: colors.card,
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: colors.border,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -360,7 +384,7 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 8,
     fontSize: 16,
-    color: Colors.text,
+    color: colors.text,
   },
   filtersScroll: {
     flexGrow: 0,
@@ -372,32 +396,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: Colors.background,
+    backgroundColor: colors.background,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: colors.border,
   },
   filterChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   filterChipPending: {
-    borderColor: Colors.warning,
-    backgroundColor: Colors.warning + "10",
+    borderColor: colors.warning,
+    backgroundColor: colors.warning + "10",
   },
   filterChipPendingActive: {
-    backgroundColor: Colors.warning,
-    borderColor: Colors.warning,
+    backgroundColor: colors.warning,
+    borderColor: colors.warning,
   },
   filterChipText: {
     fontSize: 14,
     fontWeight: "500",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
   },
   filterChipTextActive: {
     color: "white",
   },
   filterChipTextPending: {
-    color: Colors.warning,
+    color: colors.warning,
     fontWeight: "600",
   },
   list: {
@@ -412,12 +436,12 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 16,
   },
   emptySubtext: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 6,
     textAlign: "center",
     paddingHorizontal: 32,
@@ -426,7 +450,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 20,
     right: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,

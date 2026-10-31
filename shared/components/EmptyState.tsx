@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors } from '../constants/Colors';
+import { useColors, useThemedStyles, type Palette } from '../theme';
 
 interface EmptyStateProps {
   /** Nombre del ícono de Ionicons */
@@ -27,22 +27,24 @@ interface EmptyStateProps {
  * />
  * ```
  */
-export const EmptyState: React.FC<EmptyStateProps> = ({
+export const EmptyState: React.FC<EmptyStateProps> = React.memo(({
   icon,
   title,
   subtitle,
   iconSize = 64,
 }) => {
+  const colors = useColors();
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.container}>
-      <Ionicons name={icon} size={iconSize} color={Colors.textSecondary} />
+      <Ionicons name={icon} size={iconSize} color={colors.textSecondary} />
       <Text style={styles.title}>{title}</Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
     </View>
   );
-};
+});
 
-const styles = StyleSheet.create({
+const createStyles = (colors: Palette) => StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -52,13 +54,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.text,
+    color: colors.text,
     marginTop: 16,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: colors.textSecondary,
     marginTop: 8,
     textAlign: 'center',
   },
